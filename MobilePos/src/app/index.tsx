@@ -1,6 +1,9 @@
 import * as Device from 'expo-device';
 import { Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Text } from 'react-native';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 
 import { AnimatedIcon } from '@/components/animated-icon';
 import { HintRow } from '@/components/hint-row';
@@ -29,6 +32,27 @@ function getDevMenuHint() {
 }
 
 export default function HomeScreen() {
+   const [message, setMessage] = useState('Testing connection...');
+
+  useEffect(() => {
+    testConnection();
+  }, []);
+
+  async function testConnection() {
+    const { data, error } = await supabase
+      .from('branches')
+      .select('*')
+      .limit(1);
+
+    if (error) {
+      console.log('SUPABASE ERROR:', error.message);
+      setMessage(`Connection failed: ${error.message}`);
+      return;
+    }
+
+    console.log('SUPABASE DATA:', data);
+    setMessage('Supabase connection successful!');
+  }
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -42,6 +66,16 @@ export default function HomeScreen() {
         <ThemedText type="code" style={styles.code}>
           get started
         </ThemedText>
+          <View
+      style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+      }}
+    >
+      <Text>{message}</Text>
+    </View>
 
         <ThemedView type="backgroundElement" style={styles.stepContainer}>
           <HintRow
