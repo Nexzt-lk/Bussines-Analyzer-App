@@ -162,6 +162,21 @@ export default function SalesScreen() {
     return 'Rs ' + num.toLocaleString();
   }, []);
 
+  // Days each bar covers, for the doubling sales scale (0 / 25K / 50K / 100K / 200K per day):
+  // Weekly = 1 day, Monthly = 1 week (W4 can be up to 10 days), Custom = range ÷ bars.
+  const daysPerBar = (() => {
+    if (activeFilter === 'week') return 1;
+    if (activeFilter === 'month') return 8;
+    if (activeFilter === 'custom') {
+      const start = new Date(`${customRange.startDate}T00:00:00`).getTime();
+      const end = new Date(`${customRange.endDate}T00:00:00`).getTime();
+      const days = Math.round((end - start) / 86_400_000) + 1;
+      if (!Number.isFinite(days) || days < 1) return 1;
+      return Math.ceil(days / Math.min(6, days));
+    }
+    return 1;
+  })();
+
   return (
     <ScrollView
       style={styles.container}
@@ -222,6 +237,7 @@ export default function SalesScreen() {
 
       {/* 3. Income Over Time Card with Chart */}
       <SalesOverviewCard
+        daysPerBar={daysPerBar}
         chartData={salesData?.chartData ?? []}
         total={salesData?.stats.totalIncome ?? 0}
         trendPercentage={salesData?.stats.trendPercentage ?? '0%'}

@@ -37,7 +37,54 @@ export const getNiceAxis = (values: number[], sections = 4): { maxValue: number;
   return { maxValue: stepValue * sections, stepValue };
 };
 
-const formatRs = (n: number) =>`Rs ${Math.round(n).toLocaleString()}`;
+/** First sales axis step for one day of sales: 0 / 25K / 50K / 100K / 200K. */
+export const SALES_FIRST_STEP_PER_DAY = 25_000;
+const SALES_MIN_SECTIONS = 4;
+
+export interface SalesAxis {
+  /** Real amounts at each grid line, bottom to top, e.g. [0, 25K, 50K, 100K, 200K]. */
+  breakpoints: number[];
+  /** Labels for the grid lines, e.g. ['0', '25K', '50K', '100K', '200K']. */
+  labels: string[];
+  /** Converts a real amount to its drawn height (0 … breakpoints.length - 1). */
+  toPlot: (value: number) => number;
+}
+
+/**
+ * Doubling sales scale: every grid line doubles the one below it, and each
+ * gap is drawn the same height. Quiet days stay readable and season peaks
+ * still fit. A bar covering one day uses 0 / 25K / 50K / 100K / 200K; a bar
+ * covering N days starts at N × 25K (rounded up to a clean number). Peaks
+ * above the top add more doubled lines (400K, 800K, …).
+ *
+ * Bar heights are not proportional on this scale; exact amounts are shown
+ * in the detail panel.
+ */
+export const getSalesAxis = (values: number[], daysPerBar: number): SalesAxis => {
+  const raw = SALES_FIRST_STEP_PER_DAY * Math.max(1, daysPerBar);
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const first = (NICE_STEPS.find((s) => s * magnitude >= raw) ?? 10) * magnitude;
+  const peak = Math.max(0, ...values.filter((v) => Number.isFinite(v)));
+
+  const breakpoints = [0, first];
+  while (breakpoints.length <= SALES_MIN_SECTIONS || breakpoints[breakpoints.length - 1] < peak) {
+    breakpoints.push(breakpoints[breakpoints.length - 1] * 2);
+  }
+
+  const toPlot = (value: number) => {
+    if (!(value > 0)) return 0;
+    for (let i = 1; i < breakpoints.length; i++) {
+      if (value <= breakpoints[i]) {
+        return i - 1 + (value - breakpoints[i - 1]) / (breakpoints[i] - breakpoints[i - 1]);
+      }
+    }
+    return breakpoints.length - 1;
+  };
+
+  return { breakpoints, labels: breakpoints.map(formatCompactNumber), toPlot };
+};
+
+const formatRs = (n: number) =>`Rs${Math.round(n).toLocaleString()}`;
 
 interface BarDetailPanelProps {
   points: BarPoint[];

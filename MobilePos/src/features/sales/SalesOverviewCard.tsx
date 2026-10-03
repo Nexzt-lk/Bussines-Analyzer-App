@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LineChart, BarChart } from 'react-native-gifted-charts';
 import { colors } from '@/constants/colors';
-import BarDetailPanel, { formatCompactNumber, getNiceAxis } from '@/components/BarDetailPanel';
+import BarDetailPanel, { formatCompactNumber, getNiceAxis, getSalesAxis } from '@/components/BarDetailPanel';
 import type { ChartPoint } from './salesApi';
 
 // Emerald gradient colors matching user design reference
@@ -30,6 +30,12 @@ interface SalesOverviewCardProps {
   loading?: boolean;
   variant?: 'line' | 'bar';
   barWidth?: number;
+  /**
+   * Days covered by each bar (1 = one day). When set, the bar chart uses the
+   * doubling sales scale (0 / 25K / 50K / 100K / 200K per day); otherwise the
+   * axis is fitted to the data.
+   */
+  daysPerBar?: number;
   amountLabel?: string;
   title?: string;
   actionLabel?: string;
@@ -44,6 +50,7 @@ export default function SalesOverviewCard({
   loading = false,
   variant = 'line',
   barWidth = 24,
+  daysPerBar,
   amountLabel,
   title,
   actionLabel,
@@ -98,14 +105,25 @@ export default function SalesOverviewCard({
     };
   }, [chartContainerWidth, barWidth, chartData.length]);
 
-  // Round-number y-axis scaled to the tallest bar (busy season or quiet day).
-  const barAxis = useMemo(() => getNiceAxis(chartData.map((p) => p.value)), [chartData]);
+  // Y-axis: the doubling sales scale (0 / 25K / 50K / 100K / 200K per day)
+  // when daysPerBar is known, otherwise round numbers fitted to the data.
+  // Bars are drawn in axis units via toPlot; real amounts stay in chartData.
+  const barAxis = useMemo(() => {
+    const values = chartData.map((p) => p.value);
+    if (daysPerBar) {
+      const sales = getSalesAxis(values, daysPerBar);
+      const sections = sales.breakpoints.length - 1;
+      return { maxValue: sections, stepValue: 1, noOfSections: sections, labels: sales.labels, toPlot: sales.toPlot };
+    }
+    const nice = getNiceAxis(values);
+    return { ...nice, noOfSections: 4, labels: undefined, toPlot: (v: number) => v };
+  }, [chartData, daysPerBar]);
 
   // Bar chart data with rounded top pill cap matching user design
   const barData = useMemo(() => {
     const topRadius = Math.round(barWidth / 2);
     return chartData.map((item) => ({
-      value: item.value,
+      value: barAxis.toPlot(item.value),
       label: item.label,
       frontColor: 'transparent',
       barBorderTopLeftRadius: topRadius,
@@ -113,7 +131,7 @@ export default function SalesOverviewCard({
       barBorderBottomLeftRadius: 2,
       barBorderBottomRightRadius: 2,
     }));
-  }, [chartData, barWidth]);
+  }, [chartData, barWidth, barAxis]);
 
   return (
     <View style={styles.chartCard} onLayout={onCardLayout}>
@@ -238,6 +256,8 @@ export default function SalesOverviewCard({
                 }}
                 maxValue={barAxis.maxValue}
                 stepValue={barAxis.stepValue}
+                noOfSections={barAxis.noOfSections}
+                yAxisLabelTexts={barAxis.labels}
                 yAxisLabelWidth={Y_AXIS_WIDTH}
                 yAxisTextStyle={styles.yAxisLabel}
                 formatYLabel={formatCompactNumber}
@@ -247,7 +267,6 @@ export default function SalesOverviewCard({
                 dashWidth={5}
                 dashGap={4}
                 rulesColor="#E2EAE4"
-                noOfSections={4}
                 xAxisLabelTextStyle={styles.xAxisLabel}
                 isAnimated
                 animationDuration={500}
