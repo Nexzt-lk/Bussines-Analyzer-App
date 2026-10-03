@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabaseClient';
+import { fetchAllRows } from '@/lib/fetchAllRows';
+import { escapeLike, requireBranchId, toNumber } from '@/lib/reporting';
 import type { InventoryRow } from '@/lib/types';
 
 export interface InventoryStats {
@@ -9,74 +11,69 @@ export interface InventoryStats {
 
 export type InventoryStockFilter = 'all' | 'low' | 'out';
 
+/** Out of stock: nothing left (or oversold). */
+export const isOutOfStock = (row: Pick<InventoryRow, 'quantity'>) => toNumber(row.quantity) <= 0;
+
+/** Low stock: some left, at or below the reorder level. */
+export const isLowStock = (row: Pick<InventoryRow, 'quantity' | 'min_quantity'>) => {
+  const q = toNumber(row.quantity);
+  return q > 0 && q <= toNumber(row.min_quantity);
+};
+
 export const inventoryApi = {
-  // Aggregate counts for total products, low stock, and out of stock
+  /** Counts for total products, low stock and out of stock. Rejects on error. */
   getStats: async (branchId: string): Promise<InventoryStats> => {
-    const { data, error } = await supabase
-      .from('inventory')
-      .select('quantity, min_quantity, products!inner(shop_id)')
-      .eq('products.shop_id', branchId);
-
-    if (error) {
-      console.warn('Error fetching inventory stats:', error);
-      return { totalProducts: 0, lowStock: 0, outOfStock: 0 };
-    }
-
-    const rows = data ?? [];
-    let outOfStock = 0;
-    let lowStock = 0;
-
-    for (const r of rows) {
-      const q = Number(r.quantity) || 0;
-      const m = Number(r.min_quantity) || 0;
-      if (q <= 0) {
-        outOfStock++;
-      } else if (q <= m) {
-        lowStock++;
-      }
-    }
+    const shopId = requireBranchId(branchId);
+    const rows = await fetchAllRows<Pick<InventoryRow, 'quantity' | 'min_quantity'>>(() =>
+      supabase
+        .from('inventory')
+        .select('quantity, min_quantity, products!inner(shop_id)')
+        .eq('products.shop_id', shopId)
+        .order('quantity', { ascending: true }) as never
+    );
 
     return {
       totalProducts: rows.length,
-      lowStock,
-      outOfStock,
+      lowStock: rows.filter(isLowStock).length,
+      outOfStock: rows.filter(isOutOfStock).length,
     };
   },
 
-  // One JOIN query (products!inner) with search and stock status filtering
+  /**
+   * Every inventory row for the branch matching the search/category/stock
+   * filters, lowest quantity first. The search term is matched literally.
+   */
   search: async (
     branchId: string,
     searchTerm: string,
-    stockFilter?: InventoryStockFilter,
+    stockFilter: InventoryStockFilter = 'all',
     categoryId?: string
   ): Promise<InventoryRow[]> => {
-    let query = supabase
-      .from('inventory')
-      .select('quantity, min_quantity, products!inner(name, item_code, unit, shop_id, category_id)')
-      .eq('products.shop_id', branchId)
-      .order('quantity', { ascending: true })
-      .limit(100);
+    const shopId = requireBranchId(branchId);
+    const term = searchTerm.trim();
 
-    if (searchTerm) {
-      query = query.ilike('products.name', `%${searchTerm}%`);
-    }
+    const rows = await fetchAllRows<InventoryRow>(() => {
+      let query = supabase
+        .from('inventory')
+        .select('quantity, min_quantity, products!inner(name, item_code, unit, shop_id, category_id)')
+        .eq('products.shop_id', shopId);
 
-    if (categoryId && categoryId !== 'all') {
-      query = query.eq('products.category_id', categoryId);
-    }
+      if (term) {
+        query = query.ilike('products.name', `%${escapeLike(term)}%`);
+      }
+      if (categoryId && categoryId !== 'all') {
+        query = query.eq('products.category_id', categoryId);
+      }
+      if (stockFilter === 'out') {
+        query = query.lte('quantity', 0);
+      } else if (stockFilter === 'low') {
+        // "≤ min_quantity" compares two columns, which PostgREST cannot do;
+        // narrow to in-stock rows here and finish the check below.
+        query = query.gt('quantity', 0);
+      }
+      return query.order('quantity', { ascending: true }) as never;
+    });
 
-    if (stockFilter === 'out') {
-      query = query.lte('quantity', 0);
-    }
-
-    const { data, error } = await query;
-    if (error) throw error;
-    let results = (data as unknown as InventoryRow[]) ?? [];
-
-    if (stockFilter === 'low') {
-      results = results.filter((i) => (Number(i.quantity) || 0) > 0 && (Number(i.quantity) || 0) <= (Number(i.min_quantity) || 0));
-    }
-
-    return results;
+    return stockFilter === 'low' ? rows.filter(isLowStock) : rows;
   },
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,8 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
+import { toLocalYmd } from '@/lib/reporting';
+import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import {
   reportsApi,
   ReportFilterType,
@@ -37,21 +39,22 @@ const FILTER_OPTIONS: FilterOption[] = [
 
 export default function ReportsScreen() {
   const { currentBranch } = useBranch();
-  const branchId = currentBranch?.id ?? 'main-branch';
+  const branchId = currentBranch?.id ?? '';
 
   const [activeFilter, setActiveFilter] = useState<ReportFilterType>('today');
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [reportData, setReportData] = useState<ReportResponse | null>(null);
 
   // Custom Date Range Modal State
   const [isCustomModalOpen, setIsCustomModalOpen] = useState<boolean>(false);
   const [customRange, setCustomRange] = useState<CustomDateRange>(() => {
     const today = new Date();
-    const end = today.toISOString().split('T')[0];
+    const end = toLocalYmd(today);
     const past = new Date(today);
     past.setDate(past.getDate() - 14);
-    const start = past.toISOString().split('T')[0];
+    const start = toLocalYmd(past);
     return {
       startDate: start,
       endDate: end,
@@ -61,10 +64,10 @@ export default function ReportsScreen() {
   const [tempStartDate, setTempStartDate] = useState<string>(() => {
     const past = new Date();
     past.setDate(past.getDate() - 14);
-    return past.toISOString().split('T')[0];
+    return toLocalYmd(past);
   });
   const [tempEndDate, setTempEndDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
+    return toLocalYmd(new Date());
   });
 
   // Load Report Data
@@ -73,8 +76,10 @@ export default function ReportsScreen() {
       try {
         const data = await reportsApi.getReportData(branchId, filter, range);
         setReportData(data);
+        setLoadError(null);
       } catch (err) {
-        console.error('Failed to load report data:', err);
+        setReportData(null);
+        setLoadError(describeLoadError(err));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -90,12 +95,14 @@ export default function ReportsScreen() {
       .then((data) => {
         if (!isCancelled) {
           setReportData(data);
+          setLoadError(null);
           setLoading(false);
         }
       })
       .catch((err) => {
         if (!isCancelled) {
-          console.error('Failed to load report data:', err);
+          setReportData(null);
+          setLoadError(describeLoadError(err));
           setLoading(false);
         }
       });
@@ -140,10 +147,10 @@ export default function ReportsScreen() {
 
   const setQuickRange = (days: number) => {
     const today = new Date();
-    const end = today.toISOString().split('T')[0];
+    const end = toLocalYmd(today);
     const past = new Date(today);
     past.setDate(past.getDate() - days);
-    const start = past.toISOString().split('T')[0];
+    const start = toLocalYmd(past);
     setTempStartDate(start);
     setTempEndDate(end);
   };
@@ -166,25 +173,16 @@ export default function ReportsScreen() {
     expenseTrendPositive: true,
   };
 
-  const topProducts = useMemo(() => {
-    return (
-      reportData?.topProducts ?? [
-        { name: 'Chocolate Cake', units: 125 },
-        { name: 'Vanilla Cake', units: 98 },
-        { name: 'Cup Cake', units: 75 },
-      ]
-    );
-  }, [reportData?.topProducts]);
+  const topProducts = reportData?.topProducts ?? [];
+  const inventorySummary = reportData?.inventorySummary ?? { totalProducts: 0, lowStock: 0, outOfStock: 0 };
 
-  const inventorySummary = useMemo(() => {
-    return (
-      reportData?.inventorySummary ?? {
-        totalProducts: 128,
-        lowStock: 7,
-        outOfStock: 3,
-      }
-    );
-  }, [reportData?.inventorySummary]);
+  // Net result after expenses: profit, loss or break-even.
+  const health =
+    stats.revenue > 0
+      ? { label: 'Profitable', bg: '#DCFCE7', fg: '#15803D' }
+      : stats.revenue < 0
+        ? { label: 'Loss', bg: '#FEE2E2', fg: '#B91C1C' }
+        : { label: 'Break-even', bg: '#FEF3C7', fg: '#B45309' };
 
 
   return (
@@ -210,6 +208,8 @@ export default function ReportsScreen() {
           </Text>
         </View>
       </View>
+
+      <LoadErrorBanner message={loadError} onRetry={onRefresh} />
 
       {/* 2. Top Filter Pills Row (today, 7day, month, year, custom) */}
       <View style={styles.filterScrollWrapper}>
@@ -366,16 +366,16 @@ export default function ReportsScreen() {
           <View
             style={[
               styles.healthStatusPill,
-              { backgroundColor: stats.revenue > 0 ? '#DCFCE7' : '#FEF3C7' },
+              { backgroundColor: health.bg },
             ]}
           >
             <Text
               style={[
                 styles.healthStatusText,
-                { color: stats.revenue > 0 ? '#15803D' : '#B45309' },
+                { color: health.fg },
               ]}
             >
-              {stats.revenue > 0 ? 'Profitable' : 'Neutral'}
+              {health.label}
             </Text>
           </View>
         </View>

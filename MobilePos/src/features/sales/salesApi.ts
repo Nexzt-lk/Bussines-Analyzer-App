@@ -1,4 +1,21 @@
 import { supabase } from '@/lib/supabaseClient';
+import { fetchAllRows } from '@/lib/fetchAllRows';
+import {
+  type DateRange,
+  addDays,
+  computeTrend,
+  endOfDay,
+  isPaidOrder,
+  isUnpaidOrder,
+  previousPeriod,
+  requireBranchId,
+  resolveCustomRange,
+  splitIntoDaySlices,
+  startOfDay,
+  sumInRange,
+  toNumber,
+  toNumberOrNull,
+} from '@/lib/reporting';
 
 export type SalesFilterType = 'today' | 'week' | 'month' | 'custom';
 
@@ -25,7 +42,7 @@ export interface OrderRecord {
   itemCount: number;
   total: number;       // e.g. 8600
   status: 'Paid' | 'Pending' | 'Refunded';
-  customerName?: string;
+  cashierName?: string;
   items: OrderItemDetail[];
 }
 
@@ -61,510 +78,291 @@ export interface DashboardSummary {
   avgOrder: number;
 }
 
-const isValidUUID = (id?: string | null): boolean => {
-  if (!id) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-};
-
-const formatTime = (isoString: string): string => {
-  try {
-    const d = new Date(isoString);
-    const hours = String(d.getHours()).padStart(2, '0');
-    const mins = String(d.getMinutes()).padStart(2, '0');
-    return `${hours}:${mins}`;
-  } catch {
-    return '00:00';
-  }
-};
-
-const formatDateLabel = (isoString: string, now: Date): string => {
-  try {
-    const d = new Date(isoString);
-    const isToday =
-      d.getFullYear() === now.getFullYear() &&
-      d.getMonth() === now.getMonth() &&
-      d.getDate() === now.getDate();
-    if (isToday) return 'Today';
-
-    const yest = new Date(now);
-    yest.setDate(yest.getDate() - 1);
-    const isYest =
-      d.getFullYear() === yest.getFullYear() &&
-      d.getMonth() === yest.getMonth() &&
-      d.getDate() === yest.getDate();
-    if (isYest) return 'Yesterday';
-
-    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-  } catch {
-    return 'Recent';
-  }
-};
-
 interface RawOrderItem {
   id: string;
   product_name: string | null;
-  quantity: number | null;
-  unit_price: number | null;
-  subtotal: number | null;
+  quantity: number | string | null;
+  unit_price: number | string | null;
+  subtotal: number | string | null;
 }
 
 interface RawPayment {
   id: string;
   method: string | null;
-  amount: number | null;
+  amount: number | string | null;
 }
 
 interface RawOrderRow {
   id: string;
   shop_id: string;
   order_no: string | null;
-  terminal_id: string | null;
-  cashier_id: string | null;
   cashier_name: string | null;
-  subtotal: number | null;
-  discount_amount: number | null;
-  tax_amount: number | null;
-  total_amount: number | null;
+  total_amount: number | string | null;
   status: string | null;
-  note: string | null;
   created_at: string;
   order_items?: RawOrderItem[];
   payments?: RawPayment[];
 }
 
+interface RawOrderSummary {
+  id: string;
+  total_amount: number | string | null;
+  status: string | null;
+  created_at: string;
+}
+
+const ORDER_COLUMNS = `
+  id, shop_id, order_no, cashier_name, total_amount, status, created_at,
+  order_items ( id, product_name, quantity, unit_price, subtotal ),
+  payments ( id, method, amount )
+`;
+
+const MAX_LISTED_ORDERS = 100;
+
+const shortMonth = (d: Date) => d.toLocaleDateString('en-GB', { month: 'short' });
+
+const formatTime = (isoString: string): string => {
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return '--:--';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+const formatDateLabel = (isoString: string, now: Date): string => {
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return 'Recent';
+  const day = startOfDay(d).getTime();
+  if (day === startOfDay(now).getTime()) return 'Today';
+  if (day === startOfDay(addDays(now, -1)).getTime()) return 'Yesterday';
+  return `${d.getDate()} ${shortMonth(d)}`;
+};
+
+/** Current and comparison periods for a filter, in local time. */
+const getPeriods = (
+  filter: SalesFilterType,
+  now: Date,
+  customRange?: CustomDateRange
+): { current: DateRange; previous: DateRange } => {
+  if (filter === 'today') {
+    const current = { start: startOfDay(now), end: endOfDay(now) };
+    return { current, previous: previousPeriod(current) };
+  }
+  if (filter === 'week') {
+    const monday = startOfDay(addDays(now, -((now.getDay() + 6) % 7)));
+    const current = { start: monday, end: endOfDay(addDays(monday, 6)) };
+    return { current, previous: { start: addDays(monday, -7), end: endOfDay(addDays(monday, -1)) } };
+  }
+  if (filter === 'month') {
+    return {
+      current: {
+        start: new Date(now.getFullYear(), now.getMonth(), 1),
+        end: endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+      },
+      previous: {
+        start: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+        end: endOfDay(new Date(now.getFullYear(), now.getMonth(), 0)),
+      },
+    };
+  }
+  // Custom: defaults to month-to-date when no/invalid dates are given.
+  const current = resolveCustomRange(customRange?.startDate, customRange?.endDate, {
+    start: new Date(now.getFullYear(), now.getMonth(), 1),
+    end: endOfDay(now),
+  });
+  return { current, previous: previousPeriod(current) };
+};
+
+const orderTime = (o: { created_at: string }) => {
+  const t = new Date(o.created_at).getTime();
+  return Number.isNaN(t) ? null : t;
+};
+const orderTotal = (o: { total_amount: unknown }) => toNumber(o.total_amount);
+
+const buildChart = (
+  filter: SalesFilterType,
+  range: DateRange,
+  paidOrders: RawOrderRow[]
+): ChartPoint[] => {
+  const sum = (r: DateRange) => Math.round(sumInRange(paidOrders, r, orderTime, orderTotal));
+  const day = range.start;
+
+  if (filter === 'today') {
+    // Label = end of the bucket; first/last buckets absorb early and late hours.
+    const hours: [string, number, number][] = [
+      ['10a', 0, 10],
+      ['12p', 10, 12],
+      ['2p', 12, 14],
+      ['4p', 14, 16],
+      ['6p', 16, 18],
+      ['8p', 18, 24],
+    ];
+    return hours.map(([label, from, to]) => ({
+      label,
+      value: sum({
+        start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), from),
+        end: new Date(new Date(day.getFullYear(), day.getMonth(), day.getDate(), to).getTime() - 1),
+      }),
+    }));
+  }
+
+  if (filter === 'week') {
+    return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label, i) => {
+      const d = addDays(range.start, i);
+      return { label, value: sum({ start: startOfDay(d), end: endOfDay(d) }) };
+    });
+  }
+
+  if (filter === 'month') {
+    const y = range.start.getFullYear();
+    const m = range.start.getMonth();
+    const lastDay = range.end.getDate();
+    const weeks: [string, number, number][] = [
+      ['W1', 1, 7],
+      ['W2', 8, 14],
+      ['W3', 15, 21],
+      ['W4', 22, lastDay],
+    ];
+    return weeks.map(([label, from, to]) => ({
+      label,
+      value: sum({ start: new Date(y, m, from), end: endOfDay(new Date(y, m, to)) }),
+    }));
+  }
+
+  return splitIntoDaySlices(range, 6).map((slice) => ({
+    label: `${slice.end.getDate()} ${shortMonth(slice.end)}`,
+    value: sum(slice),
+  }));
+};
+
+const mapPaymentMethod = (method: string | null | undefined): OrderRecord['paymentMethod'] => {
+  const m = (method ?? '').toUpperCase();
+  if (m.includes('CARD') || m.includes('VISA') || m.includes('MASTER')) return 'Card';
+  if (m.includes('ONLINE') || m.includes('TRANSFER') || m.includes('BANK')) return 'Online';
+  return 'Cash';
+};
+
+const mapStatus = (status: string | null): OrderRecord['status'] => {
+  if (isPaidOrder(status)) return 'Paid';
+  if ((status ?? '').toLowerCase() === 'refunded') return 'Refunded';
+  return 'Pending';
+};
+
+const mapOrder = (o: RawOrderRow, now: Date): OrderRecord => {
+  const orderNo = o.order_no || '';
+  const orderNumber = orderNo.includes('-')
+    ? `#${orderNo.split('-').pop()}`
+    : orderNo
+      ? `#${orderNo}`
+      : `#${o.id.slice(0, 6)}`;
+
+  // Only real line items are shown; nothing is invented when the POS did not sync them.
+  const items: OrderItemDetail[] = (o.order_items ?? []).map((it) => {
+    const quantity = toNumberOrNull(it.quantity) ?? 1;
+    const unitPrice = toNumber(it.unit_price);
+    const subtotal = toNumberOrNull(it.subtotal);
+    return {
+      id: it.id,
+      name: it.product_name?.trim() || 'Unnamed item',
+      quantity,
+      unitPrice: Math.round(unitPrice),
+      total: Math.round(subtotal ?? quantity * unitPrice),
+    };
+  });
+
+  return {
+    id: o.id,
+    orderNumber,
+    time: formatTime(o.created_at),
+    date: formatDateLabel(o.created_at, now),
+    paymentMethod: mapPaymentMethod(o.payments?.[0]?.method),
+    itemCount: items.length,
+    total: Math.round(orderTotal(o)),
+    status: mapStatus(o.status),
+    cashierName: o.cashier_name?.trim() || undefined,
+    items,
+  };
+};
+
+const fetchOrders = <T>(branchId: string, range: DateRange, columns: string) =>
+  fetchAllRows<T>(() =>
+    supabase
+      .from('orders')
+      .select(columns)
+      .eq('shop_id', branchId)
+      .gte('created_at', range.start.toISOString())
+      .lte('created_at', range.end.toISOString())
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true }) as never
+  );
+
 export const salesApi = {
   /**
-   * Fetches real sales data, stats, chart points, and order records directly from Supabase.
+   * Sales stats, chart points and order list for one branch.
+   * Rejects when the branch is missing, the custom range is reversed, or a
+   * query fails — the UI must show an error rather than Rs 0.
    */
   getSalesData: async (
     branchId: string,
     filter: SalesFilterType,
     customRange?: CustomDateRange
   ): Promise<SalesReportResponse> => {
+    const shopId = requireBranchId(branchId);
     const now = new Date();
-    let startDate: Date;
-    let endDate: Date;
-    let prevStartDate: Date;
-    let prevEndDate: Date;
+    const { current, previous } = getPeriods(filter, now, customRange);
 
-    if (filter === 'today') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const [orders, prevOrders] = await Promise.all([
+      fetchOrders<RawOrderRow>(shopId, current, ORDER_COLUMNS),
+      fetchOrders<RawOrderSummary>(shopId, previous, 'id, total_amount, status, created_at'),
+    ]);
 
-      prevStartDate = new Date(startDate);
-      prevStartDate.setDate(prevStartDate.getDate() - 1);
-      prevEndDate = new Date(endDate);
-      prevEndDate.setDate(prevEndDate.getDate() - 1);
-    } else if (filter === 'week') {
-      const dayOfWeek = now.getDay();
-      const diffToMonday = (dayOfWeek + 6) % 7;
-      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffToMonday, 0, 0, 0, 0);
-      endDate = new Date(startDate);
-      endDate.setDate(endDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
+    const paidOrders = orders.filter((o) => isPaidOrder(o.status));
+    const totalIncome = Math.round(paidOrders.reduce((s, o) => s + orderTotal(o), 0));
+    const prevIncome = Math.round(
+      prevOrders.filter((o) => isPaidOrder(o.status)).reduce((s, o) => s + orderTotal(o), 0)
+    );
+    const trend = computeTrend(totalIncome, prevIncome);
 
-      prevStartDate = new Date(startDate);
-      prevStartDate.setDate(prevStartDate.getDate() - 7);
-      prevEndDate = new Date(endDate);
-      prevEndDate.setDate(prevEndDate.getDate() - 7);
-    } else if (filter === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-
-      prevStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
-      prevEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    } else {
-      // Custom date range
-      const s = customRange?.startDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const e = customRange?.endDate || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      startDate = new Date(`${s}T00:00:00`);
-      endDate = new Date(`${e}T23:59:59.999`);
-      const duration = endDate.getTime() - startDate.getTime();
-      prevStartDate = new Date(startDate.getTime() - duration);
-      prevEndDate = new Date(startDate.getTime() - 1);
-    }
-
-    try {
-      // 1. Query current period orders with joined items and payments
-      let currentQuery = supabase
-        .from('orders')
-        .select(`
-          id,
-          shop_id,
-          order_no,
-          terminal_id,
-          cashier_id,
-          cashier_name,
-          subtotal,
-          discount_amount,
-          tax_amount,
-          total_amount,
-          status,
-          note,
-          created_at,
-          order_items (
-            id,
-            product_name,
-            quantity,
-            unit_price,
-            subtotal
-          ),
-          payments (
-            id,
-            method,
-            amount
-          )
-        `)
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false });
-
-      if (isValidUUID(branchId)) {
-        currentQuery = currentQuery.eq('shop_id', branchId);
-      }
-
-      const { data: rawOrders, error: currentError } = await currentQuery;
-
-      if (currentError) {
-        console.error('Error fetching Supabase orders:', currentError);
-        throw currentError;
-      }
-
-      const orders = (rawOrders as RawOrderRow[]) || [];
-
-      // 2. Query previous period orders to calculate genuine trend percentage
-      let prevQuery = supabase
-        .from('orders')
-        .select('id, total_amount, status')
-        .gte('created_at', prevStartDate.toISOString())
-        .lte('created_at', prevEndDate.toISOString());
-
-      if (isValidUUID(branchId)) {
-        prevQuery = prevQuery.eq('shop_id', branchId);
-      }
-
-      const { data: rawPrevOrders } = await prevQuery;
-      const prevOrders = (rawPrevOrders as { id: string; total_amount: number | null; status: string | null }[]) || [];
-
-      // 3. Compute Stats
-      const completedOrders = orders.filter((o) => o.status === 'completed');
-      const totalIncome = Math.round(
-        completedOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0)
-      );
-      const orderCount = orders.length;
-      const paidCount = completedOrders.length;
-      const unpaidCount = orderCount - paidCount;
-      const avgOrderValue = paidCount > 0 ? Math.round(totalIncome / paidCount) : 0;
-
-      // 4. Calculate Trend Percentage
-      const prevCompleted = prevOrders.filter((o) => o.status === 'completed');
-      const prevIncome = Math.round(
-        prevCompleted.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0)
-      );
-
-      let trendPercentage = '+0%';
-      let trendPositive = true;
-
-      if (prevIncome > 0) {
-        const diff = totalIncome - prevIncome;
-        const pct = Math.round((diff / prevIncome) * 100);
-        trendPercentage = `${pct >= 0 ? '+' : ''}${pct}%`;
-        trendPositive = pct >= 0;
-      } else if (totalIncome > 0) {
-        trendPercentage = '+100%';
-        trendPositive = true;
-      } else {
-        trendPercentage = '0%';
-        trendPositive = true;
-      }
-
-      // 5. Construct Chart Data Points according to active filter
-      let chartData: ChartPoint[] = [];
-
-      if (filter === 'today') {
-        // Daily curved line chart intervals: 10a, 12p, 2p, 4p, 6p, 8p
-        const buckets = [
-          { label: '10a', startH: 0, endH: 10 },
-          { label: '12p', startH: 10, endH: 12 },
-          { label: '2p', startH: 12, endH: 14 },
-          { label: '4p', startH: 14, endH: 16 },
-          { label: '6p', startH: 16, endH: 18 },
-          { label: '8p', startH: 18, endH: 24 },
-        ];
-
-        chartData = buckets.map((b) => {
-          const sum = completedOrders
-            .filter((o) => {
-              const h = new Date(o.created_at).getHours();
-              return h >= b.startH && h < b.endH;
-            })
-            .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
-          return { label: b.label, value: Math.round(sum) };
-        });
-      } else if (filter === 'week') {
-        // Weekly bar chart: Mon, Tue, Wed, Thu, Fri, Sat, Sun
-        const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        chartData = dayLabels.map((label, idx) => {
-          const dStart = new Date(startDate.getTime() + idx * 86400000);
-          const dEnd = new Date(startDate.getTime() + (idx + 1) * 86400000 - 1);
-          const sum = completedOrders
-            .filter((o) => {
-              const t = new Date(o.created_at).getTime();
-              return t >= dStart.getTime() && t <= dEnd.getTime();
-            })
-            .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
-          return { label, value: Math.round(sum) };
-        });
-      } else if (filter === 'month') {
-        // Monthly bar chart: W1, W2, W3, W4
-        const daysInMonth = endDate.getDate();
-        const buckets = [
-          { label: 'W1', startD: 1, endD: 7 },
-          { label: 'W2', startD: 8, endD: 14 },
-          { label: 'W3', startD: 15, endD: 21 },
-          { label: 'W4', startD: 22, endD: daysInMonth },
-        ];
-
-        chartData = buckets.map((b) => {
-          const sum = completedOrders
-            .filter((o) => {
-              const day = new Date(o.created_at).getDate();
-              return day >= b.startD && day <= b.endD;
-            })
-            .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
-          return { label: b.label, value: Math.round(sum) };
-        });
-      } else {
-        // Custom: 6 intervals spanning the selected range
-        const totalDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / 86400000));
-        const step = Math.max(1, Math.floor(totalDays / 6));
-        const points: ChartPoint[] = [];
-
-        for (let i = 0; i < 6; i++) {
-          const sliceStart = new Date(startDate.getTime() + i * step * 86400000);
-          const sliceEnd =
-            i === 5 ? endDate : new Date(startDate.getTime() + (i + 1) * step * 86400000 - 1);
-          const label = `${sliceEnd.getDate()} ${sliceEnd.toLocaleDateString('en-GB', { month: 'short' })}`;
-          const sum = completedOrders
-            .filter((o) => {
-              const t = new Date(o.created_at).getTime();
-              return t >= sliceStart.getTime() && t <= sliceEnd.getTime();
-            })
-            .reduce((acc, o) => acc + (Number(o.total_amount) || 0), 0);
-          points.push({ label, value: Math.round(sum) });
-        }
-        chartData = points;
-      }
-
-      // 6. Map live database orders into OrderRecord format
-      const mappedOrders: OrderRecord[] = orders.slice(0, 100).map((o) => {
-        const rawMethod = o.payments?.[0]?.method?.toUpperCase() || 'CASH';
-        const paymentMethod: 'Card' | 'Cash' | 'Online' = rawMethod.includes('CARD')
-          ? 'Card'
-          : rawMethod.includes('ONLINE')
-            ? 'Online'
-            : 'Cash';
-
-        const orderNo = o.order_no || '';
-        const shortNo = orderNo.includes('-')
-          ? `#${orderNo.split('-').pop()}`
-          : orderNo
-            ? `#${orderNo}`
-            : `#${o.id.slice(0, 6)}`;
-
-        const items: OrderItemDetail[] =
-          o.order_items && o.order_items.length > 0
-            ? o.order_items.map((it) => ({
-              id: it.id,
-              name: it.product_name || 'Bakery Item',
-              quantity: Number(it.quantity) || 1,
-              unitPrice: Math.round(Number(it.unit_price) || 0),
-              total: Math.round(
-                Number(it.subtotal) ||
-                (Number(it.quantity) || 1) * (Number(it.unit_price) || 0)
-              ),
-            }))
-            : [
-              {
-                id: `${o.id}-gen`,
-                name: 'Sales Item',
-                quantity: 1,
-                unitPrice: Math.round(Number(o.total_amount) || 0),
-                total: Math.round(Number(o.total_amount) || 0),
-              },
-            ];
-
-        const statusMapped: 'Paid' | 'Pending' | 'Refunded' =
-          o.status === 'completed' ? 'Paid' : o.status === 'refunded' ? 'Refunded' : 'Pending';
-
-        return {
-          id: o.id,
-          orderNumber: shortNo,
-          time: formatTime(o.created_at),
-          date: formatDateLabel(o.created_at, now),
-          paymentMethod,
-          itemCount: items.length,
-          total: Math.round(Number(o.total_amount) || 0),
-          status: statusMapped,
-          customerName: o.cashier_name || o.note || 'Walk-in Guest',
-          items,
-        };
-      });
-
-      return {
-        filter,
-        stats: {
-          totalIncome,
-          trendPercentage,
-          trendPositive,
-          orderCount,
-          avgOrderValue,
-          paidCount,
-          unpaidCount,
-        },
-        chartData,
-        orders: mappedOrders,
-      };
-    } catch (err) {
-      console.error('Failed to query Supabase sales data:', err);
-      // Return dynamic zero-state structure (NEVER fake dummy data)
-      return {
-        filter,
-        stats: {
-          totalIncome: 0,
-          trendPercentage: '0%',
-          trendPositive: true,
-          orderCount: 0,
-          avgOrderValue: 0,
-          paidCount: 0,
-          unpaidCount: 0,
-        },
-        chartData:
-          filter === 'today'
-            ? [
-              { label: '10a', value: 0 },
-              { label: '12p', value: 0 },
-              { label: '2p', value: 0 },
-              { label: '4p', value: 0 },
-              { label: '6p', value: 0 },
-              { label: '8p', value: 0 },
-            ]
-            : filter === 'week'
-              ? [
-                { label: 'Mon', value: 0 },
-                { label: 'Tue', value: 0 },
-                { label: 'Wed', value: 0 },
-                { label: 'Thu', value: 0 },
-                { label: 'Fri', value: 0 },
-                { label: 'Sat', value: 0 },
-                { label: 'Sun', value: 0 },
-              ]
-              : filter === 'month'
-                ? [
-                  { label: 'W1', value: 0 },
-                  { label: 'W2', value: 0 },
-                  { label: 'W3', value: 0 },
-                  { label: 'W4', value: 0 },
-                ]
-                : [
-                  { label: 'P1', value: 0 },
-                  { label: 'P2', value: 0 },
-                  { label: 'P3', value: 0 },
-                  { label: 'P4', value: 0 },
-                  { label: 'P5', value: 0 },
-                  { label: 'P6', value: 0 },
-                ],
-        orders: [],
-      };
-    }
+    return {
+      filter,
+      stats: {
+        totalIncome,
+        trendPercentage: trend.text,
+        trendPositive: trend.positive,
+        orderCount: orders.length,
+        avgOrderValue: paidOrders.length > 0 ? Math.round(totalIncome / paidOrders.length) : 0,
+        paidCount: paidOrders.length,
+        unpaidCount: orders.filter((o) => isUnpaidOrder(o.status)).length,
+      },
+      chartData: buildChart(filter, current, paidOrders),
+      orders: orders.slice(0, MAX_LISTED_ORDERS).map((o) => mapOrder(o, now)),
+    };
   },
 
-  /**
-   * Helper for Dashboard home screen to display real today stats from Supabase
-   */
+  /** Today's headline numbers for one branch. */
   getDashboardSummary: async (branchId: string): Promise<DashboardSummary> => {
-    try {
-      const now = new Date();
-      const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const endToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const shopId = requireBranchId(branchId);
+    const now = new Date();
+    const today = { start: startOfDay(now), end: endOfDay(now) };
+    const columns = 'id, total_amount, status, created_at';
 
-      const startYesterday = new Date(startToday);
-      startYesterday.setDate(startYesterday.getDate() - 1);
-      const endYesterday = new Date(endToday);
-      endYesterday.setDate(endYesterday.getDate() - 1);
+    const [todayOrders, yesterdayOrders] = await Promise.all([
+      fetchOrders<RawOrderSummary>(shopId, today, columns),
+      fetchOrders<RawOrderSummary>(shopId, previousPeriod(today), columns),
+    ]);
 
-      let qToday = supabase
-        .from('orders')
-        .select('id, total_amount, status')
-        .gte('created_at', startToday.toISOString())
-        .lte('created_at', endToday.toISOString());
+    const paidToday = todayOrders.filter((o) => isPaidOrder(o.status));
+    const todayIncome = Math.round(paidToday.reduce((s, o) => s + orderTotal(o), 0));
+    const yesterdayIncome = Math.round(
+      yesterdayOrders.filter((o) => isPaidOrder(o.status)).reduce((s, o) => s + orderTotal(o), 0)
+    );
+    const trend = computeTrend(todayIncome, yesterdayIncome);
 
-      if (isValidUUID(branchId)) {
-        qToday = qToday.eq('shop_id', branchId);
-      }
-
-      const { data: todayOrders } = await qToday;
-
-      let qYesterday = supabase
-        .from('orders')
-        .select('id, total_amount, status')
-        .gte('created_at', startYesterday.toISOString())
-        .lte('created_at', endYesterday.toISOString());
-
-      if (isValidUUID(branchId)) {
-        qYesterday = qYesterday.eq('shop_id', branchId);
-      }
-
-      const { data: yestOrders } = await qYesterday;
-
-      const tOrders = todayOrders || [];
-      const yOrders = yestOrders || [];
-
-      const todayCompleted = tOrders.filter((o) => o.status === 'completed');
-      const todayIncome = Math.round(
-        todayCompleted.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0)
-      );
-
-      const yestCompleted = yOrders.filter((o) => o.status === 'completed');
-      const yestIncome = Math.round(
-        yestCompleted.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0)
-      );
-
-      let trendPercentage = '+0%';
-      let trendPositive = true;
-
-      if (yestIncome > 0) {
-        const diff = todayIncome - yestIncome;
-        const pct = Math.round((diff / yestIncome) * 100);
-        trendPercentage = `${pct >= 0 ? '+' : ''}${pct}%`;
-        trendPositive = pct >= 0;
-      } else if (todayIncome > 0) {
-        trendPercentage = '+100%';
-        trendPositive = true;
-      }
-
-      const ordersToday = tOrders.length;
-      const unpaidCount = tOrders.filter((o) => o.status !== 'completed').length;
-      const avgOrder = todayCompleted.length > 0 ? Math.round(todayIncome / todayCompleted.length) : 0;
-
-      return {
-        todayIncome,
-        trendPercentage,
-        trendPositive,
-        ordersToday,
-        unpaidCount,
-        avgOrder,
-      };
-    } catch (err) {
-      console.error('Error fetching dashboard summary:', err);
-      return {
-        todayIncome: 0,
-        trendPercentage: '0%',
-        trendPositive: true,
-        ordersToday: 0,
-        unpaidCount: 0,
-        avgOrder: 0,
-      };
-    }
+    return {
+      todayIncome,
+      trendPercentage: trend.text,
+      trendPositive: trend.positive,
+      ordersToday: todayOrders.length,
+      unpaidCount: todayOrders.filter((o) => isUnpaidOrder(o.status)).length,
+      avgOrder: paidToday.length > 0 ? Math.round(todayIncome / paidToday.length) : 0,
+    };
   },
 };

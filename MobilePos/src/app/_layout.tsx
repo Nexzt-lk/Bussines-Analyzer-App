@@ -71,7 +71,6 @@ function RootNavigation() {
       <Stack.Screen name="select-branch" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="inventory" options={{ title: 'Inventory' }} />
-      <Stack.Screen name="add_product" options={{ title: 'Add Product' }} />
       <Stack.Screen name="sales" options={{ title: 'Sales', headerShown: false }} />
     </Stack>
   );

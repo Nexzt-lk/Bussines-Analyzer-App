@@ -24,6 +24,7 @@ import { inventoryApi } from '../inventory/inventoryApi';
 import { productsApi } from '../products/productsApi';
 import { branchesApi } from '../branches/branchApi';
 import { colors } from '@/constants/colors';
+import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import type { InventoryRow, Category, Branch } from '@/lib/types';
 import SalesScreen from '../sales/SalesScreen';
 import ExpensesScreen from '../expenses/ExpensesScreen';
@@ -43,7 +44,7 @@ export default function DashboardScreen() {
 
   // Branches list & active register switching
   const [allBranches, setAllBranches] = useState<Branch[]>([]);
-  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [loadingBranches, setLoadingBranches] = useState(true);
   const [switchingBranchId, setSwitchingBranchId] = useState<string | null>(null);
 
   // Notification settings for Profile tab
@@ -52,7 +53,7 @@ export default function DashboardScreen() {
 
   // Inventory / Stock data
   const [inventoryItems, setInventoryItems] = useState<InventoryRow[]>([]);
-  const [loadingInventory, setLoadingInventory] = useState(false);
+  const [loadingInventory, setLoadingInventory] = useState(true);
   const [stockSearch, setStockSearch] = useState('');
   type StockCardFilter = 'all' | 'low' | 'out';
   const [stockFilterType, setStockFilterType] = useState<StockCardFilter>('all');
@@ -63,37 +64,51 @@ export default function DashboardScreen() {
   // Today's report data (metric cards, sales overview, top products)
   const [reportData, setReportData] = useState<ReportResponse | null>(null);
   const [loadingReport, setLoadingReport] = useState(true);
+  const [homeLoadError, setHomeLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Load real inventory and today's sales summary safely
-  const loadDashboardData = useCallback(async (isRefresh = false) => {
-    if (!currentBranch) return;
-    if (isRefresh) setRefreshing(true);
-
-    try {
-      const [invRes, repRes, catRes] = await Promise.allSettled([
-        inventoryApi.search(currentBranch.id, ''),
-        reportsApi.getReportData(currentBranch.id, 'today'),
-        productsApi.getCategories(currentBranch.id),
-      ]);
-
-      if (invRes.status === 'fulfilled') setInventoryItems(invRes.value);
-      if (repRes.status === 'fulfilled') setReportData(repRes.value);
+  // Applies one round of home-screen results. Never shows Rs 0 / 0 low
+  // stock as if it were real when a load failed.
+  const applyDashboardResults = useCallback(
+    (
+      invRes: PromiseSettledResult<InventoryRow[]>,
+      repRes: PromiseSettledResult<ReportResponse>,
+      catRes: PromiseSettledResult<Category[]>
+    ) => {
+      setInventoryItems(invRes.status === 'fulfilled' ? invRes.value : []);
+      setReportData(repRes.status === 'fulfilled' ? repRes.value : null);
       if (catRes.status === 'fulfilled' && catRes.value.length > 0) setCategories(catRes.value);
-    } catch {
-      // Handled silently
-    } finally {
+      const failed = [repRes, invRes].find((r) => r.status === 'rejected');
+      setHomeLoadError(failed?.status === 'rejected' ? describeLoadError(failed.reason) : null);
       setLoadingInventory(false);
       setLoadingReport(false);
       setRefreshing(false);
-    }
-  }, [currentBranch]);
+    },
+    []
+  );
 
+  const branchId = currentBranch?.id ?? '';
+  const fetchDashboard = useCallback(
+    () =>
+      Promise.allSettled([
+        inventoryApi.search(branchId, ''),
+        reportsApi.getReportData(branchId, 'today'),
+        productsApi.getCategories(branchId),
+      ]),
+    [branchId]
+  );
+
+  // Initial load and branch changes; ignores responses for a stale branch.
   useEffect(() => {
-    setLoadingInventory(true);
-    setLoadingReport(true);
-    loadDashboardData();
-  }, [loadDashboardData]);
+    if (!branchId) return;
+    let cancelled = false;
+    fetchDashboard().then(([inv, rep, cat]) => {
+      if (!cancelled) applyDashboardResults(inv, rep, cat);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [branchId, fetchDashboard, applyDashboardResults]);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -104,8 +119,10 @@ export default function DashboardScreen() {
   }, []);
 
   const onRefresh = useCallback(() => {
-    loadDashboardData(true);
-  }, [loadDashboardData]);
+    if (!branchId) return;
+    setRefreshing(true);
+    fetchDashboard().then(([inv, rep, cat]) => applyDashboardResults(inv, rep, cat));
+  }, [branchId, fetchDashboard, applyDashboardResults]);
 
   // Derived low stock and out of stock items
   const lowStockItems = useMemo(
@@ -181,16 +198,16 @@ export default function DashboardScreen() {
   }, []);
 
   const userName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Owner';
+  const currentUserName = currentUser?.name;
   const userInitials = useMemo(() => {
-    if (!currentUser?.name) return 'OD';
-    const parts = currentUser.name.trim().split(/\s+/);
+    if (!currentUserName) return 'OD';
+    const parts = currentUserName.trim().split(/\s+/);
     if (parts.length >= 2) {
       return (parts[0][0] + parts[1][0]).toUpperCase();
     }
     return parts[0].slice(0, 2).toUpperCase();
-  }, [currentUser?.name]);
+  }, [currentUserName]);
 
-  const userInitial = userInitials;
 
   const formattedDate = useMemo(() => {
     const now = new Date();
@@ -199,17 +216,12 @@ export default function DashboardScreen() {
     const year = now.getFullYear();
     return `${day} ${month} ${year}`;
   }, []);
-  const branchSubtitle = currentBranch?.name
-    ? currentBranch.name.includes('—')
-      ? currentBranch.name
-      : `Sugarcrumb — ${currentBranch.name}`
-    : 'Sugarcrumb — Main Street';
-
+  // Real branch name only — never a placeholder shop.
   const branchDisplayName = currentBranch?.name
     ? currentBranch.name.includes('—')
       ? currentBranch.name.split('—')[1].trim()
       : currentBranch.name
-    : 'Colombo Branch';
+    : 'No branch selected';
 
   // Format currency
   const formatRs = useCallback((num: number) => {
@@ -218,7 +230,6 @@ export default function DashboardScreen() {
 
   // Load all active branches for Profile tab
   useEffect(() => {
-    setLoadingBranches(true);
     branchesApi
       .getActive()
       .then((data) => {
@@ -308,6 +319,8 @@ export default function DashboardScreen() {
 
       {/* Main Home Content */}
       <View style={styles.homeBodyContent}>
+        <LoadErrorBanner message={homeLoadError} onRetry={onRefresh} />
+
         {/* Four Metric Cards: Today Sales, Order Revenue, Today Orders, Low Stock */}
         <View style={styles.cardsGrid}>
           <View style={styles.cardRow}>

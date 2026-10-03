@@ -118,12 +118,6 @@ export default function BranchSelectorScreen() {
   );
 }
 
-const serifFont = Platform.select({
-  ios: 'Georgia',
-  android: 'serif',
-  default: 'serif',
-});
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,

@@ -13,6 +13,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
+import { toLocalYmd } from '@/lib/reporting';
+import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import {
   salesApi,
   SalesFilterType,
@@ -36,11 +38,12 @@ const FILTER_OPTIONS: FilterOption[] = [
 
 export default function SalesScreen() {
   const { currentBranch } = useBranch();
-  const branchId = currentBranch?.id ?? 'main-branch';
+  const branchId = currentBranch?.id ?? '';
 
   const [activeFilter, setActiveFilter] = useState<SalesFilterType>('today');
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [salesData, setSalesData] = useState<SalesReportResponse | null>(null);
 
   // Selected Order for Detail Modal
@@ -50,10 +53,10 @@ export default function SalesScreen() {
   const [isCustomModalOpen, setIsCustomModalOpen] = useState<boolean>(false);
   const [customRange, setCustomRange] = useState<CustomDateRange>(() => {
     const today = new Date();
-    const end = today.toISOString().split('T')[0];
+    const end = toLocalYmd(today);
     const past = new Date(today);
     past.setDate(past.getDate() - 14);
-    const start = past.toISOString().split('T')[0];
+    const start = toLocalYmd(past);
     return {
       startDate: start,
       endDate: end,
@@ -63,10 +66,10 @@ export default function SalesScreen() {
   const [tempStartDate, setTempStartDate] = useState<string>(() => {
     const past = new Date();
     past.setDate(past.getDate() - 14);
-    return past.toISOString().split('T')[0];
+    return toLocalYmd(past);
   });
   const [tempEndDate, setTempEndDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
+    return toLocalYmd(new Date());
   });
 
   // Load Sales Data
@@ -75,8 +78,10 @@ export default function SalesScreen() {
       try {
         const data = await salesApi.getSalesData(branchId, filter, range);
         setSalesData(data);
+        setLoadError(null);
       } catch (err) {
-        console.error('Failed to load sales data:', err);
+        setSalesData(null);
+        setLoadError(describeLoadError(err));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -91,12 +96,14 @@ export default function SalesScreen() {
       .then((data) => {
         if (!isCancelled) {
           setSalesData(data);
+          setLoadError(null);
           setLoading(false);
         }
       })
       .catch((err) => {
         if (!isCancelled) {
-          console.error('Failed to load sales data:', err);
+          setSalesData(null);
+          setLoadError(describeLoadError(err));
           setLoading(false);
         }
       });
@@ -142,10 +149,10 @@ export default function SalesScreen() {
   // Quick preset ranges for Custom Filter
   const setQuickRange = (days: number, _label: string) => {
     const today = new Date();
-    const end = today.toISOString().split('T')[0];
+    const end = toLocalYmd(today);
     const past = new Date(today);
     past.setDate(past.getDate() - days);
-    const start = past.toISOString().split('T')[0];
+    const start = toLocalYmd(past);
     setTempStartDate(start);
     setTempEndDate(end);
   };
@@ -174,6 +181,8 @@ export default function SalesScreen() {
         <Text style={styles.headerTitle}>Sales</Text>
         <Text style={styles.headerSubtitle}>Income over time</Text>
       </View>
+
+      <LoadErrorBanner message={loadError} onRetry={onRefresh} />
 
       {/* 2. Filter Pills Container (Today, Week, Month, Custom) */}
       <View style={styles.filterContainer}>
@@ -283,19 +292,38 @@ export default function SalesScreen() {
 
             {/* Status Pill */}
             <View style={styles.modalStatusRow}>
-              <View style={styles.modalStatusBadge}>
-                <Ionicons name="checkmark-circle" size={14} color={colors.successText} />
-                <Text style={styles.modalStatusText}>{selectedOrder?.status ?? 'Paid'}</Text>
+              <View
+                style={[
+                  styles.modalStatusBadge,
+                  selectedOrder?.status !== 'Paid' && { backgroundColor: colors.dangerBg },
+                ]}
+              >
+                <Ionicons
+                  name={selectedOrder?.status === 'Paid' ? 'checkmark-circle' : 'time-outline'}
+                  size={14}
+                  color={selectedOrder?.status === 'Paid' ? colors.successText : colors.dangerText}
+                />
+                <Text
+                  style={[
+                    styles.modalStatusText,
+                    selectedOrder?.status !== 'Paid' && { color: colors.dangerText },
+                  ]}
+                >
+                  {selectedOrder?.status}
+                </Text>
               </View>
-              {selectedOrder?.customerName && (
-                <Text style={styles.modalCustomerText}>Client: {selectedOrder.customerName}</Text>
+              {selectedOrder?.cashierName && (
+                <Text style={styles.modalCustomerText}>Cashier: {selectedOrder.cashierName}</Text>
               )}
             </View>
 
             {/* Itemized List */}
             <Text style={styles.modalSectionLabel}>ORDER ITEMS</Text>
             <View style={styles.modalItemsList}>
-              {selectedOrder?.items?.map((item) => (
+              {selectedOrder?.items.length === 0 && (
+                <Text style={styles.modalItemSub}>No item details were synced for this order.</Text>
+              )}
+              {selectedOrder?.items.map((item) => (
                 <View key={item.id} style={styles.modalItemRow}>
                   <View style={styles.modalItemInfo}>
                     <Text style={styles.modalItemName}>{item.name}</Text>
@@ -310,7 +338,9 @@ export default function SalesScreen() {
 
             {/* Total Row */}
             <View style={styles.modalTotalRow}>
-              <Text style={styles.modalTotalLabel}>Total Paid</Text>
+              <Text style={styles.modalTotalLabel}>
+                {selectedOrder?.status === 'Paid' ? 'Total Paid' : 'Total'}
+              </Text>
               <Text style={styles.modalTotalAmount}>
                 {formatRs(selectedOrder?.total ?? 0)}
               </Text>

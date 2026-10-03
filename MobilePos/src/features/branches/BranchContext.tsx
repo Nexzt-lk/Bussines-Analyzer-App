@@ -17,10 +17,11 @@ export function BranchProvider({ children }: { children: ReactNode }) {
   // Remembers the last-selected branch across app restarts — avoids making
   // the owner re-pick their branch every single time they open the app.
   useEffect(() => {
-    storage.getBranch().then((branch) => {
-      setCurrentBranch(branch);
-      setLoading(false);
-    });
+    storage
+      .getBranch()
+      .then(setCurrentBranch)
+      .catch(() => setCurrentBranch(null))
+      .finally(() => setLoading(false));
   }, []);
 
   const selectBranch = useCallback(async (branch: StoredBranch) => {

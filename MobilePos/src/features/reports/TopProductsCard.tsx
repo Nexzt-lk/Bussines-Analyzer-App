@@ -42,15 +42,16 @@ export default function TopProductsCard({
         {visibleProducts.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="basket-outline" size={24} color={colors.textMuted} />
-            <Text style={styles.emptyText}>No product sales recorded yet today</Text>
+            <Text style={styles.emptyText}>No product sales in this period</Text>
           </View>
         ) : (
           visibleProducts.map((item, index) => {
             const rank = index + 1;
-            const progressPercent = Math.min(
-              100,
-              Math.max(12, Math.round((item.units / (maxProductUnits * 1.25)) * 100))
-            );
+            // Small sellers keep a visible 12% stub; nothing sold means an empty bar.
+            const progressPercent =
+              item.units > 0
+                ? Math.min(100, Math.max(12, Math.round((item.units / (maxProductUnits * 1.25)) * 100)))
+                : 0;
             const isLast = index === visibleProducts.length - 1;
 
             return (

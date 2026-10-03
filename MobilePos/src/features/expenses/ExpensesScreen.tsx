@@ -18,6 +18,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { LineChart, BarChart } from 'react-native-gifted-charts';
 import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
+import { toLocalYmd } from '@/lib/reporting';
+import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import {
   expensesApi,
   ExpenseFilterType,
@@ -64,12 +66,13 @@ const getCategoryIcon = (cat?: string): { name: any; bg: string; color: string }
 
 export default function ExpensesScreen() {
   const { currentBranch } = useBranch();
-  const branchId = currentBranch?.id ?? 'main-branch';
+  const branchId = currentBranch?.id ?? '';
 
   const [activeFilter, setActiveFilter] = useState<ExpenseFilterType>('today');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [reportData, setReportData] = useState<ExpensesReportResponse | null>(null);
 
   // Card layout width for responsive chart spacing
@@ -84,10 +87,10 @@ export default function ExpensesScreen() {
   const [isCustomModalOpen, setIsCustomModalOpen] = useState<boolean>(false);
   const [customRange, setCustomRange] = useState<CustomDateRange>(() => {
     const today = new Date();
-    const end = today.toISOString().split('T')[0];
+    const end = toLocalYmd(today);
     const past = new Date(today);
     past.setDate(past.getDate() - 14);
-    const start = past.toISOString().split('T')[0];
+    const start = toLocalYmd(past);
     return {
       startDate: start,
       endDate: end,
@@ -97,10 +100,10 @@ export default function ExpensesScreen() {
   const [tempStartDate, setTempStartDate] = useState<string>(() => {
     const past = new Date();
     past.setDate(past.getDate() - 14);
-    return past.toISOString().split('T')[0];
+    return toLocalYmd(past);
   });
   const [tempEndDate, setTempEndDate] = useState<string>(() => {
-    return new Date().toISOString().split('T')[0];
+    return toLocalYmd(new Date());
   });
 
   // Load Expenses Data from live Supabase table
@@ -109,8 +112,10 @@ export default function ExpensesScreen() {
       try {
         const data = await expensesApi.getExpensesData(branchId, filter, range);
         setReportData(data);
+        setLoadError(null);
       } catch (err) {
-        console.error('Failed to load expenses data from Supabase:', err);
+        setReportData(null);
+        setLoadError(describeLoadError(err));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -119,10 +124,29 @@ export default function ExpensesScreen() {
     [branchId]
   );
 
+  // Reloads on branch, filter or custom-range change (applying a new custom
+  // range while "Custom" is already selected must refresh the data too).
   useEffect(() => {
-    setLoading(true);
-    loadData(activeFilter, activeFilter === 'custom' ? customRange : undefined);
-  }, [branchId, activeFilter, loadData]);
+    let cancelled = false;
+    expensesApi
+      .getExpensesData(branchId, activeFilter, activeFilter === 'custom' ? customRange : undefined)
+      .then((data) => {
+        if (cancelled) return;
+        setReportData(data);
+        setLoadError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setReportData(null);
+        setLoadError(describeLoadError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [branchId, activeFilter, customRange]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -136,16 +160,22 @@ export default function ExpensesScreen() {
   const handleFilterPress = (filterId: ExpenseFilterType) => {
     if (filterId === 'custom') {
       setIsCustomModalOpen(true);
-    } else {
+    } else if (filterId !== activeFilter) {
+      setLoading(true);
       setActiveFilter(filterId);
     }
   };
 
   const handleApplyCustomRange = () => {
-    const s = new Date(tempStartDate);
-    const e = new Date(tempEndDate);
+    // Parse as local calendar days (a bare 'YYYY-MM-DD' would be UTC midnight).
+    const s = new Date(`${tempStartDate}T00:00:00`);
+    const e = new Date(`${tempEndDate}T00:00:00`);
     if (isNaN(s.getTime()) || isNaN(e.getTime())) {
       Alert.alert('Invalid Date', 'Please provide valid YYYY-MM-DD dates');
+      return;
+    }
+    if (s.getTime() > e.getTime()) {
+      Alert.alert('Invalid Range', 'Start date must be on or before the end date.');
       return;
     }
     const label = `${s.getDate()} ${s.toLocaleDateString('en-GB', { month: 'short' })} – ${e.getDate()} ${e.toLocaleDateString('en-GB', { month: 'short' })}`;
@@ -154,10 +184,10 @@ export default function ExpensesScreen() {
       endDate: tempEndDate,
       label,
     };
+    setLoading(true);
     setCustomRange(newRange);
     setActiveFilter('custom');
     setIsCustomModalOpen(false);
-    loadData('custom', newRange);
   };
 
   const onCardLayout = (event: LayoutChangeEvent) => {
@@ -168,22 +198,21 @@ export default function ExpensesScreen() {
   };
 
   // Distinct category list from Supabase data
+  const expenses = reportData?.expenses;
   const categoryList = useMemo(() => {
     const set = new Set<string>();
-    if (reportData?.expenses) {
-      for (const e of reportData.expenses) {
-        if (e.category) set.add(e.category);
-      }
+    for (const e of expenses ?? []) {
+      if (e.category) set.add(e.category);
     }
     return ['all', ...Array.from(set)];
-  }, [reportData?.expenses]);
+  }, [expenses]);
 
   // Filtered expense records by Category Pill
   const displayedExpenses = useMemo(() => {
-    if (!reportData?.expenses) return [];
-    if (selectedCategoryFilter === 'all') return reportData.expenses;
-    return reportData.expenses.filter((e) => e.category === selectedCategoryFilter);
-  }, [reportData?.expenses, selectedCategoryFilter]);
+    if (!expenses) return [];
+    if (selectedCategoryFilter === 'all') return expenses;
+    return expenses.filter((e) => e.category === selectedCategoryFilter);
+  }, [expenses, selectedCategoryFilter]);
 
   // Dynamic Chart calculations
   const rawChartData = reportData?.chartData ?? [];
@@ -226,6 +255,8 @@ export default function ExpensesScreen() {
           <Text style={styles.headerSubtitle}>Operational costs & spending</Text>
         </View>
       </View>
+
+      <LoadErrorBanner message={loadError} onRetry={onRefresh} />
 
       {/* 2. Filter Pills Container (Daily, Weekly, Monthly, Custom) */}
       <View style={styles.filterContainer}>

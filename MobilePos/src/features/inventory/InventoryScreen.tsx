@@ -16,6 +16,7 @@ import { productsApi } from '../products/productsApi';
 import { useBranch } from '../branches/BranchContext';
 import { useDebouncedValue } from '@/hooks/Usedebouncedvalue ';
 import { colors } from '@/constants/colors';
+import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import type { InventoryRow, Category } from '@/lib/types';
 
 const InventoryItem = memo(function InventoryItem({ item }: { item: InventoryRow }) {
@@ -65,7 +66,7 @@ export default function InventoryScreen() {
     inventoryApi
       .getStats(currentBranch.id)
       .then(setStats)
-      .catch((e) => console.warn('Failed to load inventory stats:', e));
+      .catch((e) => setError(describeLoadError(e)));
 
     productsApi
       .getCategories(currentBranch.id)
@@ -80,28 +81,19 @@ export default function InventoryScreen() {
     if (!currentBranch) return;
     inventoryApi
       .search(currentBranch.id, debouncedSearch, stockFilter, selectedCategory)
-      .then(setItems)
-      .catch((e) => setError(e.message))
+      .then((rows) => {
+        setItems(rows);
+        setError('');
+      })
+      .catch((e) => {
+        setItems([]);
+        setError(describeLoadError(e));
+      })
       .finally(() => setLoading(false));
   }, [currentBranch, debouncedSearch, stockFilter, selectedCategory]);
 
-  // Zero-latency effective stats: uses API aggregate or calculates directly from loaded items
-  const effectiveStats = useMemo(() => {
-    if (stats.totalProducts > 0) return stats;
-    let outCount = 0;
-    let lowCount = 0;
-    for (const item of items) {
-      const q = Number(item.quantity) || 0;
-      const m = Number(item.min_quantity) || 0;
-      if (q <= 0) outCount++;
-      else if (q <= m) lowCount++;
-    }
-    return {
-      totalProducts: items.length,
-      lowStock: lowCount,
-      outOfStock: outCount,
-    };
-  }, [stats, items]);
+  // Branch-wide counts always come from getStats, never from the filtered list.
+  const effectiveStats = stats;
 
   const categoryList = useMemo(() => {
     return [{ id: 'all', name: 'All', code_prefix: 'ALL' }, ...categories];
@@ -370,7 +362,7 @@ export default function InventoryScreen() {
         </ScrollView>
       </View>
 
-      {error ? <Text className="text-red-600 mb-2">{error}</Text> : null}
+      <LoadErrorBanner message={error || null} />
 
       {loading ? (
         <ActivityIndicator style={{ marginTop: 20 }} color={colors.primary} />
