@@ -13,6 +13,10 @@ export const colors = {
   primaryBorder: '#A7F3D0',    // Mint border
   primaryText: '#065F46',      // Deep forest green for text on mint
 
+  // Chart Bar Gradient (Emerald gradient matching user reference image)
+  chartGradientStart: '#32C468', // Vibrant emerald green (top)
+  chartGradientEnd: '#178440',   // Deep forest green (bottom)
+
   // Hero Card Palette (Deep Luxurious Emerald Green)
   heroCard: '#065F46',         // Forest green hero card
   heroCardDark: '#064E3B',     // Deep emerald
@@ -43,6 +47,7 @@ export const colors = {
   jumpSalesBg: '#DCFCE7',      // Light mint circle
   jumpStockBg: '#D1FAE5',      // Mint emerald circle
   jumpReportsBg: '#ECFDF5',    // Soft mint circle
+  jumpExpensesBg: '#FEF3C7',   // Soft amber circle for expenses
 
   // Bottom Navigation Tabs
   tabBarBg: '#FFFFFF',

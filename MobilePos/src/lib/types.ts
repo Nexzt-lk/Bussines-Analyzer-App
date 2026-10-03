@@ -35,5 +35,6 @@ export interface InventoryRow {
     item_code: string;
     unit: string;
     shop_id: string;
+    category_id?: string;
   };
 }

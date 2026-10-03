@@ -37,12 +37,19 @@ export const authApi = {
     }
 
     // 2. Direct database query fallback
-    const { data: user, error } = await supabase
+    const isEmail = trimmedEmail.includes('@');
+    let userQuery = supabase
       .from('users')
       .select('id, name, email, role, password_hash, is_active')
-      .ilike('email', trimmedEmail)
-      .eq('is_active', true)
-      .maybeSingle();
+      .eq('is_active', true);
+
+    if (isEmail) {
+      userQuery = userQuery.ilike('email', trimmedEmail);
+    } else {
+      userQuery = userQuery.or(`email.ilike.${trimmedEmail},name.ilike.${trimmedEmail}`);
+    }
+
+    const { data: user, error } = await userQuery.maybeSingle();
 
     if (error) {
       console.error('Login query error:', error);
