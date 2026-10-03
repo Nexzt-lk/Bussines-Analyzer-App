@@ -32,6 +32,7 @@ import ReportsScreen from '../reports/ReportsScreen';
 import { reportsApi, type ReportResponse } from '../reports/reportsApi';
 import SalesOverviewCard from '../sales/SalesOverviewCard';
 import TopProductsCard from '../reports/TopProductsCard';
+import { DAILY_VIEW_FIRST_STEP } from '@/components/BarDetailPanel';
 
 type ActiveTab = 'home' | 'sales' | 'expenses' | 'stock' | 'reports' | 'profile';
 
@@ -433,6 +434,7 @@ export default function DashboardScreen() {
           trendPositive={reportStats?.salesTrendPositive !== false}
           loading={loadingReport}
           variant="line"
+          firstAxisStep={DAILY_VIEW_FIRST_STEP} // today: 0 / 10K / 20K / 40K / 80K
         />
 
         {/* Top Selling Products */}

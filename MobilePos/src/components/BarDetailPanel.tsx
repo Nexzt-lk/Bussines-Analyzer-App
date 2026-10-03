@@ -39,6 +39,8 @@ export const getNiceAxis = (values: number[], sections = 4): { maxValue: number;
 
 /** First sales axis step for one day of sales: 0 / 25K / 50K / 100K / 200K. */
 export const SALES_FIRST_STEP_PER_DAY = 25_000;
+/** First axis line for the Daily view (today by time slot): 0 / 10K / 20K / 40K / 80K. */
+export const DAILY_VIEW_FIRST_STEP = 10_000;
 const SALES_MIN_SECTIONS = 4;
 
 export interface SalesAxis {
@@ -54,14 +56,15 @@ export interface SalesAxis {
  * Doubling sales scale: every grid line doubles the one below it, and each
  * gap is drawn the same height. Quiet days stay readable and season peaks
  * still fit. A bar covering one day uses 0 / 25K / 50K / 100K / 200K; a bar
- * covering N days starts at N × 25K (rounded up to a clean number). Peaks
+ * covering N days starts at N × 25K (rounded up to a clean number), and a
+ * part of a day (e.g. 1/6 for a time slot) starts proportionally lower. Peaks
  * above the top add more doubled lines (400K, 800K, …).
  *
  * Bar heights are not proportional on this scale; exact amounts are shown
  * in the detail panel.
  */
-export const getSalesAxis = (values: number[], daysPerBar: number): SalesAxis => {
-  const raw = SALES_FIRST_STEP_PER_DAY * Math.max(1, daysPerBar);
+export const getSalesAxis = (values: number[], daysPerBar: number, firstStep?: number): SalesAxis => {
+  const raw = firstStep ?? SALES_FIRST_STEP_PER_DAY * Math.max(daysPerBar, 0.01);
   const magnitude = 10 ** Math.floor(Math.log10(raw));
   const first = (NICE_STEPS.find((s) => s * magnitude >= raw) ?? 10) * magnitude;
   const peak = Math.max(0, ...values.filter((v) => Number.isFinite(v)));

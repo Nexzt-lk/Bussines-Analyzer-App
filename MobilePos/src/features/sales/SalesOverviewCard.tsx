@@ -36,6 +36,8 @@ interface SalesOverviewCardProps {
    * axis is fitted to the data.
    */
   daysPerBar?: number;
+  /** Overrides the first axis line, e.g. DAILY_VIEW_FIRST_STEP for 0 / 10K / 20K / 40K / 80K. */
+  firstAxisStep?: number;
   amountLabel?: string;
   title?: string;
   actionLabel?: string;
@@ -51,6 +53,7 @@ export default function SalesOverviewCard({
   variant = 'line',
   barWidth = 24,
   daysPerBar,
+  firstAxisStep,
   amountLabel,
   title,
   actionLabel,
@@ -78,7 +81,7 @@ export default function SalesOverviewCard({
   const chartSpacing = useMemo(() => {
     const dataLength = chartData.length || 6;
     if (dataLength <= 1) return 40;
-    const availableWidth = Math.max(chartContainerWidth - 40, 200); // 20px padding left/right
+    const availableWidth = Math.max(chartContainerWidth - 40 - Y_AXIS_WIDTH, 200); // padding + y-axis labels
     return Math.floor(availableWidth / (dataLength - 1));
   }, [chartContainerWidth, chartData.length]);
 
@@ -105,25 +108,26 @@ export default function SalesOverviewCard({
     };
   }, [chartContainerWidth, barWidth, chartData.length]);
 
-  // Y-axis: the doubling sales scale (0 / 25K / 50K / 100K / 200K per day)
-  // when daysPerBar is known, otherwise round numbers fitted to the data.
-  // Bars are drawn in axis units via toPlot; real amounts stay in chartData.
-  const barAxis = useMemo(() => {
+  // Y-axis for both chart types: the doubling sales scale (0 / 25K / 50K /
+  // 100K / 200K per day) when daysPerBar is known, otherwise round numbers
+  // fitted to the data. Values are drawn in axis units via toPlot; real
+  // amounts stay in chartData for the detail panel and pointer label.
+  const valueAxis = useMemo(() => {
     const values = chartData.map((p) => p.value);
-    if (daysPerBar) {
-      const sales = getSalesAxis(values, daysPerBar);
+    if (daysPerBar || firstAxisStep) {
+      const sales = getSalesAxis(values, daysPerBar ?? 1, firstAxisStep);
       const sections = sales.breakpoints.length - 1;
       return { maxValue: sections, stepValue: 1, noOfSections: sections, labels: sales.labels, toPlot: sales.toPlot };
     }
     const nice = getNiceAxis(values);
     return { ...nice, noOfSections: 4, labels: undefined, toPlot: (v: number) => v };
-  }, [chartData, daysPerBar]);
+  }, [chartData, daysPerBar, firstAxisStep]);
 
   // Bar chart data with rounded top pill cap matching user design
   const barData = useMemo(() => {
     const topRadius = Math.round(barWidth / 2);
     return chartData.map((item) => ({
-      value: barAxis.toPlot(item.value),
+      value: valueAxis.toPlot(item.value),
       label: item.label,
       frontColor: 'transparent',
       barBorderTopLeftRadius: topRadius,
@@ -131,7 +135,13 @@ export default function SalesOverviewCard({
       barBorderBottomLeftRadius: 2,
       barBorderBottomRightRadius: 2,
     }));
-  }, [chartData, barWidth, barAxis]);
+  }, [chartData, barWidth, valueAxis]);
+
+  // Line points drawn on the same axis; `amount` keeps the real value.
+  const lineData = useMemo(
+    () => chartData.map((item) => ({ ...item, value: valueAxis.toPlot(item.value), amount: item.value })),
+    [chartData, valueAxis]
+  );
 
   return (
     <View style={styles.chartCard} onLayout={onCardLayout}>
@@ -177,7 +187,7 @@ export default function SalesOverviewCard({
           <View style={styles.chartWrapper}>
             {variant === 'line' ? (
               <LineChart
-                data={chartData}
+                data={lineData}
                 curved
                 areaChart
                 height={160}
@@ -191,14 +201,19 @@ export default function SalesOverviewCard({
                 startOpacity={0.28}
                 endOpacity={0.02}
                 hideDataPoints
-                hideYAxisText
+                maxValue={valueAxis.maxValue}
+                stepValue={valueAxis.stepValue}
+                noOfSections={valueAxis.noOfSections}
+                yAxisLabelTexts={valueAxis.labels}
+                yAxisLabelWidth={Y_AXIS_WIDTH}
+                yAxisTextStyle={styles.yAxisLabel}
+                formatYLabel={formatCompactNumber}
                 yAxisThickness={0}
                 xAxisThickness={0}
                 rulesType="dashed"
                 dashWidth={5}
                 dashGap={4}
                 rulesColor="#E2EAE4"
-                noOfSections={4}
                 xAxisLabelTextStyle={styles.xAxisLabel}
                 isAnimated
                 animationDuration={600}
@@ -215,7 +230,7 @@ export default function SalesOverviewCard({
                       <View style={styles.statTooltipCard}>
                         <Text style={styles.statTooltipTitle}>{item.label}</Text>
                         <Text style={styles.statTooltipIncome}>
-                          Income : {formatRs(item.value)}
+                          Income : {formatRs(item.amount ?? item.value)}
                         </Text>
                       </View>
                     );
@@ -254,10 +269,10 @@ export default function SalesOverviewCard({
                     />
                   );
                 }}
-                maxValue={barAxis.maxValue}
-                stepValue={barAxis.stepValue}
-                noOfSections={barAxis.noOfSections}
-                yAxisLabelTexts={barAxis.labels}
+                maxValue={valueAxis.maxValue}
+                stepValue={valueAxis.stepValue}
+                noOfSections={valueAxis.noOfSections}
+                yAxisLabelTexts={valueAxis.labels}
                 yAxisLabelWidth={Y_AXIS_WIDTH}
                 yAxisTextStyle={styles.yAxisLabel}
                 formatYLabel={formatCompactNumber}

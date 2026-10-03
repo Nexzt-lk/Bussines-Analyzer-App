@@ -23,6 +23,7 @@ import {
   CustomDateRange,
 } from './salesApi';
 import SalesOverviewCard from './SalesOverviewCard';
+import { DAILY_VIEW_FIRST_STEP } from '@/components/BarDetailPanel';
 
 interface FilterOption {
   id: SalesFilterType;
@@ -164,6 +165,7 @@ export default function SalesScreen() {
 
   // Days each bar covers, for the doubling sales scale (0 / 25K / 50K / 100K / 200K per day):
   // Weekly = 1 day, Monthly = 1 week (W4 can be up to 10 days), Custom = range ÷ bars.
+  // Daily uses its own fixed start instead: 0 / 10K / 20K / 40K / 80K.
   const daysPerBar = (() => {
     if (activeFilter === 'week') return 1;
     if (activeFilter === 'month') return 8;
@@ -238,6 +240,7 @@ export default function SalesScreen() {
       {/* 3. Income Over Time Card with Chart */}
       <SalesOverviewCard
         daysPerBar={daysPerBar}
+        firstAxisStep={activeFilter === 'today' ? DAILY_VIEW_FIRST_STEP : undefined}
         chartData={salesData?.chartData ?? []}
         total={salesData?.stats.totalIncome ?? 0}
         trendPercentage={salesData?.stats.trendPercentage ?? '0%'}
