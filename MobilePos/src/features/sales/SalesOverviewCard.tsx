@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
   },
   incomeAmount: {
     fontFamily: serifFont,
-    fontSize: 34,
+    fontSize: 24,
     fontWeight: '800',
     color: '#18181B',
     marginTop: 4,
