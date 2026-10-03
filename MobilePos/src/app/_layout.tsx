@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import '../global.css';
 
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext';
@@ -9,11 +10,13 @@ import { colors } from '@/constants/colors';
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <BranchProvider>
-        <RootNavigation />
-      </BranchProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <BranchProvider>
+          <RootNavigation />
+        </BranchProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -65,10 +68,11 @@ function RootNavigation() {
       }}
     >
       <Stack.Screen name="login" options={{ headerShown: false }} />
-      <Stack.Screen name="select-branch" options={{ title: 'Select Branch' }} />
+      <Stack.Screen name="select-branch" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="inventory" options={{ title: 'Inventory' }} />
       <Stack.Screen name="add_product" options={{ title: 'Add Product' }} />
+      <Stack.Screen name="sales" options={{ title: 'Sales', headerShown: false }} />
     </Stack>
   );
 }

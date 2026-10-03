@@ -1,0 +1,776 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  RefreshControl,
+  Platform,
+  Modal,
+  TextInput,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useBranch } from '../branches/BranchContext';
+import { colors } from '@/constants/colors';
+import {
+  salesApi,
+  SalesFilterType,
+  SalesReportResponse,
+  OrderRecord,
+  CustomDateRange,
+} from './salesApi';
+import SalesOverviewCard from './SalesOverviewCard';
+
+interface FilterOption {
+  id: SalesFilterType;
+  label: string;
+}
+
+const FILTER_OPTIONS: FilterOption[] = [
+  { id: 'today', label: 'Daily' },
+  { id: 'week', label: 'Weekly' },
+  { id: 'month', label: 'Monthly' },
+  { id: 'custom', label: 'Custom' },
+];
+
+export default function SalesScreen() {
+  const { currentBranch } = useBranch();
+  const branchId = currentBranch?.id ?? 'main-branch';
+
+  const [activeFilter, setActiveFilter] = useState<SalesFilterType>('today');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [salesData, setSalesData] = useState<SalesReportResponse | null>(null);
+
+  // Selected Order for Detail Modal
+  const [selectedOrder, setSelectedOrder] = useState<OrderRecord | null>(null);
+
+  // Custom Date Range State & Modal
+  const [isCustomModalOpen, setIsCustomModalOpen] = useState<boolean>(false);
+  const [customRange, setCustomRange] = useState<CustomDateRange>(() => {
+    const today = new Date();
+    const end = today.toISOString().split('T')[0];
+    const past = new Date(today);
+    past.setDate(past.getDate() - 14);
+    const start = past.toISOString().split('T')[0];
+    return {
+      startDate: start,
+      endDate: end,
+      label: `${past.getDate()} ${past.toLocaleDateString('en-GB', { month: 'short' })} – ${today.getDate()} ${today.toLocaleDateString('en-GB', { month: 'short' })}`,
+    };
+  });
+  const [tempStartDate, setTempStartDate] = useState<string>(() => {
+    const past = new Date();
+    past.setDate(past.getDate() - 14);
+    return past.toISOString().split('T')[0];
+  });
+  const [tempEndDate, setTempEndDate] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+
+  // Load Sales Data
+  const loadData = useCallback(
+    async (filter: SalesFilterType, range?: CustomDateRange) => {
+      try {
+        const data = await salesApi.getSalesData(branchId, filter, range);
+        setSalesData(data);
+      } catch (err) {
+        console.error('Failed to load sales data:', err);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [branchId]
+  );
+
+  useEffect(() => {
+    let isCancelled = false;
+    salesApi.getSalesData(branchId, activeFilter, activeFilter === 'custom' ? customRange : undefined)
+      .then((data) => {
+        if (!isCancelled) {
+          setSalesData(data);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!isCancelled) {
+          console.error('Failed to load sales data:', err);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [branchId, activeFilter, customRange]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadData(activeFilter, activeFilter === 'custom' ? customRange : undefined);
+  }, [activeFilter, customRange, loadData]);
+
+  // Handle Tab / Filter Switch
+  const handleFilterPress = (filter: SalesFilterType) => {
+    if (filter === 'custom') {
+      setActiveFilter('custom');
+      setIsCustomModalOpen(true);
+    } else {
+      setLoading(true);
+      setActiveFilter(filter);
+    }
+  };
+
+  // Apply Custom Date Range
+  const handleApplyCustomRange = () => {
+    const sDate = new Date(`${tempStartDate}T00:00:00`);
+    const eDate = new Date(`${tempEndDate}T00:00:00`);
+    const formattedLabel = `${sDate.getDate()} ${sDate.toLocaleDateString('en-GB', { month: 'short' })} – ${eDate.getDate()} ${eDate.toLocaleDateString('en-GB', { month: 'short' })}`;
+
+    const newRange: CustomDateRange = {
+      startDate: tempStartDate,
+      endDate: tempEndDate,
+      label: formattedLabel,
+    };
+    setLoading(true);
+    setCustomRange(newRange);
+    setIsCustomModalOpen(false);
+    setActiveFilter('custom');
+  };
+
+  // Quick preset ranges for Custom Filter
+  const setQuickRange = (days: number, _label: string) => {
+    const today = new Date();
+    const end = today.toISOString().split('T')[0];
+    const past = new Date(today);
+    past.setDate(past.getDate() - days);
+    const start = past.toISOString().split('T')[0];
+    setTempStartDate(start);
+    setTempEndDate(end);
+  };
+
+  // Format currency helper
+  const formatRs = useCallback((num: number) => {
+    return 'Rs ' + num.toLocaleString();
+  }, []);
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.primary}
+          colors={[colors.primary]}
+        />
+      }
+    >
+      {/* 1. Header Section */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Sales</Text>
+        <Text style={styles.headerSubtitle}>Income over time</Text>
+      </View>
+
+      {/* 2. Filter Pills Container (Today, Week, Month, Custom) */}
+      <View style={styles.filterContainer}>
+        {FILTER_OPTIONS.map((opt) => {
+          const isActive = activeFilter === opt.id;
+          return (
+            <TouchableOpacity
+              key={opt.id}
+              style={[styles.filterPill, isActive && styles.filterPillActive]}
+              onPress={() => handleFilterPress(opt.id)}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.filterText, isActive && styles.filterTextActive]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Custom Range Info Pill (Only shown when Custom is active) */}
+      {activeFilter === 'custom' && (
+        <TouchableOpacity
+          style={styles.customBadgeRow}
+          onPress={() => setIsCustomModalOpen(true)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.customBadgeLeft}>
+            <Ionicons name="calendar-outline" size={14} color={colors.primary} />
+            <Text style={styles.customBadgeText}>
+              Selected: {customRange.label || `${customRange.startDate} to ${customRange.endDate}`}
+            </Text>
+          </View>
+          <Text style={styles.customBadgeAction}>Change</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* 3. Income Over Time Card with Chart */}
+      <SalesOverviewCard
+        chartData={salesData?.chartData ?? []}
+        total={salesData?.stats.totalIncome ?? 0}
+        trendPercentage={salesData?.stats.trendPercentage ?? '0%'}
+        trendPositive={salesData?.stats.trendPositive !== false}
+        loading={loading}
+        variant={activeFilter === 'today' ? 'line' : 'bar'}
+        barWidth={activeFilter === 'month' ? 32 : 24}
+        amountLabel="INCOME"
+      />
+
+      {/* 4. Recent Orders Section */}
+      <Text style={styles.recentOrdersHeading}>Recent orders</Text>
+
+      <View style={styles.ordersList}>
+        {salesData?.orders && salesData.orders.length > 0 ? (
+          salesData.orders.map((ord) => (
+            <TouchableOpacity
+              key={ord.id}
+              style={styles.orderCard}
+              onPress={() => setSelectedOrder(ord)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.orderLeft}>
+                <Text style={styles.orderNumber}>{ord.orderNumber}</Text>
+                <Text style={styles.orderMeta}>
+                  {ord.time} · {ord.paymentMethod} · {ord.itemCount} {ord.itemCount === 1 ? 'item' : 'items'}
+                </Text>
+              </View>
+
+              <View style={styles.orderRight}>
+                <Text style={styles.orderAmount}>{formatRs(ord.total)}</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+              </View>
+            </TouchableOpacity>
+          ))
+        ) : (
+          <View style={styles.emptyCard}>
+            <Ionicons name="receipt-outline" size={28} color={colors.textMuted} />
+            <Text style={styles.emptyText}>No orders found for this timeframe.</Text>
+          </View>
+        )}
+      </View>
+
+      {/* 5. Order Detail Modal */}
+      <Modal
+        visible={Boolean(selectedOrder)}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setSelectedOrder(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalOrderNumber}>{selectedOrder?.orderNumber}</Text>
+                <Text style={styles.modalOrderTime}>
+                  {selectedOrder?.date}, {selectedOrder?.time} · {selectedOrder?.paymentMethod}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setSelectedOrder(null)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Status Pill */}
+            <View style={styles.modalStatusRow}>
+              <View style={styles.modalStatusBadge}>
+                <Ionicons name="checkmark-circle" size={14} color={colors.successText} />
+                <Text style={styles.modalStatusText}>{selectedOrder?.status ?? 'Paid'}</Text>
+              </View>
+              {selectedOrder?.customerName && (
+                <Text style={styles.modalCustomerText}>Client: {selectedOrder.customerName}</Text>
+              )}
+            </View>
+
+            {/* Itemized List */}
+            <Text style={styles.modalSectionLabel}>ORDER ITEMS</Text>
+            <View style={styles.modalItemsList}>
+              {selectedOrder?.items?.map((item) => (
+                <View key={item.id} style={styles.modalItemRow}>
+                  <View style={styles.modalItemInfo}>
+                    <Text style={styles.modalItemName}>{item.name}</Text>
+                    <Text style={styles.modalItemSub}>
+                      {item.quantity} × {formatRs(item.unitPrice)}
+                    </Text>
+                  </View>
+                  <Text style={styles.modalItemPrice}>{formatRs(item.total)}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Total Row */}
+            <View style={styles.modalTotalRow}>
+              <Text style={styles.modalTotalLabel}>Total Paid</Text>
+              <Text style={styles.modalTotalAmount}>
+                {formatRs(selectedOrder?.total ?? 0)}
+              </Text>
+            </View>
+
+            {/* Action Button */}
+            <TouchableOpacity
+              style={styles.modalActionButton}
+              onPress={() => setSelectedOrder(null)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalActionButtonText}>Close Receipt</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 6. Custom Date Range Picker Modal */}
+      <Modal
+        visible={isCustomModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsCustomModalOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            {/* Modal Title */}
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalOrderNumber}>Select Custom Range</Text>
+                <Text style={styles.modalOrderTime}>Choose start & end dates</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setIsCustomModalOpen(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={20} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Quick Presets */}
+            <Text style={styles.modalSectionLabel}>QUICK PRESETS</Text>
+            <View style={styles.presetRow}>
+              <TouchableOpacity
+                style={styles.presetButton}
+                onPress={() => setQuickRange(7, 'Last 7 Days')}
+              >
+                <Text style={styles.presetButtonText}>Last 7 Days</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.presetButton}
+                onPress={() => setQuickRange(14, 'Last 14 Days')}
+              >
+                <Text style={styles.presetButtonText}>Last 14 Days</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.presetButton}
+                onPress={() => setQuickRange(30, 'Last 30 Days')}
+              >
+                <Text style={styles.presetButtonText}>Last 30 Days</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Date Inputs */}
+            <Text style={styles.modalSectionLabel}>CUSTOM DATE RANGE</Text>
+            <View style={styles.inputRangeRow}>
+              <View style={styles.dateInputCol}>
+                <Text style={styles.inputLabel}>Start Date</Text>
+                <View style={styles.inputBox}>
+                  <Ionicons name="calendar-outline" size={16} color={colors.textMuted} />
+                  <TextInput
+                    style={styles.textInput}
+                    value={tempStartDate}
+                    onChangeText={setTempStartDate}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.dateInputCol}>
+                <Text style={styles.inputLabel}>End Date</Text>
+                <View style={styles.inputBox}>
+                  <Ionicons name="calendar-outline" size={16} color={colors.textMuted} />
+                  <TextInput
+                    style={styles.textInput}
+                    value={tempEndDate}
+                    onChangeText={setTempEndDate}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </View>
+              </View>
+            </View>
+
+            {/* Apply Button */}
+            <TouchableOpacity
+              style={styles.modalActionButton}
+              onPress={handleApplyCustomRange}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalActionButtonText}>Apply Custom Range</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
+  );
+}
+
+const serifFont = Platform.select({
+  ios: 'Georgia',
+  android: 'serif',
+  default: 'serif',
+});
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FBF9', // Soft subtle canvas matching theme
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 48,
+  },
+
+  // Header
+  header: {
+    marginBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+
+  // Segmented Pill Filter Container
+  filterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EBEBE6',
+    borderRadius: 24,
+    padding: 4,
+    marginBottom: 20,
+  },
+  filterPill: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterPillActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  filterText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#71717A',
+  },
+  filterTextActive: {
+    fontWeight: '700',
+    color: '#18181B',
+  },
+
+  // Custom Range Info Row
+  customBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.primarySurface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.primaryBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 16,
+  },
+  customBadgeLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  customBadgeText: {
+    fontSize: 13,
+    color: colors.primaryText,
+    fontWeight: '600',
+  },
+  customBadgeAction: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+    marginLeft: 8,
+  },
+
+  // Recent Orders Section
+  recentOrdersHeading: {
+    fontFamily: serifFont,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#18181B',
+    marginTop: 32,
+    marginBottom: 14,
+  },
+  ordersList: {
+    gap: 10,
+  },
+  orderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E8ECE8',
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.02,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  orderLeft: {
+    flex: 1,
+  },
+  orderNumber: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#18181B',
+  },
+  orderMeta: {
+    fontSize: 13,
+    color: '#71717A',
+    marginTop: 4,
+  },
+  orderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  orderAmount: {
+    fontFamily: serifFont,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#18181B',
+  },
+
+  emptyCard: {
+    paddingVertical: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E8ECE8',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: colors.textMuted,
+  },
+
+  // Modal Overlays
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 22,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  modalOrderNumber: {
+    fontFamily: serifFont,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#18181B',
+  },
+  modalOrderTime: {
+    fontSize: 13,
+    color: '#71717A',
+    marginTop: 2,
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+
+  modalStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F2',
+  },
+  modalStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.successBg,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    gap: 4,
+  },
+  modalStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.successText,
+  },
+  modalCustomerText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+
+  modalSectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: '#94A3B8',
+    marginBottom: 10,
+  },
+  modalItemsList: {
+    gap: 12,
+    marginBottom: 18,
+  },
+  modalItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modalItemInfo: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  modalItemName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#18181B',
+  },
+  modalItemSub: {
+    fontSize: 12,
+    color: '#71717A',
+    marginTop: 2,
+  },
+  modalItemPrice: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#18181B',
+  },
+
+  modalTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingTop: 14,
+    marginBottom: 20,
+  },
+  modalTotalLabel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#18181B',
+  },
+  modalTotalAmount: {
+    fontFamily: serifFont,
+    fontSize: 22,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  modalActionButton: {
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalActionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  // Presets in Custom Modal
+  presetRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 18,
+  },
+  presetButton: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+
+  // Date Range inputs
+  inputRangeRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  dateInputCol: {
+    flex: 1,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: 6,
+  },
+  inputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    height: 44,
+    gap: 6,
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#18181B',
+  },
+});

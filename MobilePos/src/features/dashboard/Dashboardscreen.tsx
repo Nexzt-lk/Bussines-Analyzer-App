@@ -5,79 +5,161 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   TextInput,
   ActivityIndicator,
   Platform,
+  Modal,
+  RefreshControl,
+  StatusBar as RNStatusBar,
+  Switch,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { useBranch } from '../branches/BranchContext';
 import { useAuth } from '../auth/AuthContext';
 import { inventoryApi } from '../inventory/inventoryApi';
+import { productsApi } from '../products/productsApi';
+import { branchesApi } from '../branches/branchApi';
 import { colors } from '@/constants/colors';
-import type { InventoryRow } from '@/lib/types';
+import type { InventoryRow, Category, Branch } from '@/lib/types';
+import SalesScreen from '../sales/SalesScreen';
+import ExpensesScreen from '../expenses/ExpensesScreen';
+import ReportsScreen from '../reports/ReportsScreen';
+import { reportsApi, type ReportResponse } from '../reports/reportsApi';
+import SalesOverviewCard from '../sales/SalesOverviewCard';
+import TopProductsCard from '../reports/TopProductsCard';
 
-type ActiveTab = 'home' | 'sales' | 'stock' | 'reports' | 'profile';
+type ActiveTab = 'home' | 'sales' | 'expenses' | 'stock' | 'reports' | 'profile';
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { currentBranch, clearBranch } = useBranch();
+  const { currentBranch, selectBranch, clearBranch } = useBranch();
   const { currentUser, logout } = useAuth();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
-  const [salesPeriod, setSalesPeriod] = useState<'today' | 'week' | 'month'>('today');
+
+  // Branches list & active register switching
+  const [allBranches, setAllBranches] = useState<Branch[]>([]);
+  const [loadingBranches, setLoadingBranches] = useState(false);
+  const [switchingBranchId, setSwitchingBranchId] = useState<string | null>(null);
+
+  // Notification settings for Profile tab
+  const [lowStockAlerts, setLowStockAlerts] = useState(true);
+  const [dailyClosingAlerts, setDailyClosingAlerts] = useState(true);
 
   // Inventory / Stock data
   const [inventoryItems, setInventoryItems] = useState<InventoryRow[]>([]);
   const [loadingInventory, setLoadingInventory] = useState(false);
   const [stockSearch, setStockSearch] = useState('');
-  const [stockFilterLow, setStockFilterLow] = useState(false);
+  type StockCardFilter = 'all' | 'low' | 'out';
+  const [stockFilterType, setStockFilterType] = useState<StockCardFilter>('all');
+  const [stockFilterModalVisible, setStockFilterModalVisible] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
-  // Load real inventory items safely
-  useEffect(() => {
+  // Today's report data (metric cards, sales overview, top products)
+  const [reportData, setReportData] = useState<ReportResponse | null>(null);
+  const [loadingReport, setLoadingReport] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Load real inventory and today's sales summary safely
+  const loadDashboardData = useCallback(async (isRefresh = false) => {
     if (!currentBranch) return;
-    let cancelled = false;
+    if (isRefresh) setRefreshing(true);
 
-    inventoryApi
-      .search(currentBranch.id, '')
-      .then((data) => {
-        if (!cancelled) setInventoryItems(data);
-      })
-      .catch(() => {
-        // Fallback or empty if offline
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingInventory(false);
-      });
+    try {
+      const [invRes, repRes, catRes] = await Promise.allSettled([
+        inventoryApi.search(currentBranch.id, ''),
+        reportsApi.getReportData(currentBranch.id, 'today'),
+        productsApi.getCategories(currentBranch.id),
+      ]);
 
-    return () => {
-      cancelled = true;
-    };
+      if (invRes.status === 'fulfilled') setInventoryItems(invRes.value);
+      if (repRes.status === 'fulfilled') setReportData(repRes.value);
+      if (catRes.status === 'fulfilled' && catRes.value.length > 0) setCategories(catRes.value);
+    } catch {
+      // Handled silently
+    } finally {
+      setLoadingInventory(false);
+      setLoadingReport(false);
+      setRefreshing(false);
+    }
   }, [currentBranch]);
 
-  // Derived low stock items
+  useEffect(() => {
+    setLoadingInventory(true);
+    setLoadingReport(true);
+    loadDashboardData();
+  }, [loadDashboardData]);
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      RNStatusBar.setBarStyle('dark-content');
+      RNStatusBar.setBackgroundColor(colors.background);
+      RNStatusBar.setTranslucent(false);
+    }
+  }, []);
+
+  const onRefresh = useCallback(() => {
+    loadDashboardData(true);
+  }, [loadDashboardData]);
+
+  // Derived low stock and out of stock items
   const lowStockItems = useMemo(
-    () => inventoryItems.filter((i) => i.quantity <= i.min_quantity),
+    () =>
+      inventoryItems.filter(
+        (i) =>
+          (Number(i.quantity) || 0) > 0 &&
+          (Number(i.quantity) || 0) <= (Number(i.min_quantity) || 0)
+      ),
     [inventoryItems]
   );
 
-  const lowStockSummaryText = useMemo(() => {
-    if (lowStockItems.length === 0) {
-      return 'Custom Cake Boards, Couverture Chocolate and...';
-    }
-    const names = lowStockItems.map((i) => i.products.name).slice(0, 2).join(', ');
-    return lowStockItems.length > 2 ? `${names} and...` : names;
-  }, [lowStockItems]);
+  const outOfStockItems = useMemo(
+    () => inventoryItems.filter((i) => (Number(i.quantity) || 0) <= 0),
+    [inventoryItems]
+  );
 
-  const lowStockCount = lowStockItems.length > 0 ? lowStockItems.length : 7;
-  const totalProductsCount = inventoryItems.length > 0 ? inventoryItems.length : 11;
+  const inventoryStats = useMemo(() => {
+    return {
+      total: inventoryItems.length,
+      low: lowStockItems.length,
+      out: outOfStockItems.length,
+    };
+  }, [inventoryItems.length, lowStockItems.length, outOfStockItems.length]);
+
+  const reportStats = reportData?.stats;
+
+  const salesOverviewData = useMemo(
+    () =>
+      (reportData?.chartData ?? []).map((p) => ({
+        label: p.label,
+        value: p.value ?? p.sales,
+      })),
+    [reportData?.chartData]
+  );
+
+  const categoryList = useMemo(() => {
+    return [{ id: 'all', name: 'All', code_prefix: 'ALL' }, ...categories];
+  }, [categories]);
 
   // Filtered stock list for Stock Tab
   const filteredStock = useMemo(() => {
     let list = inventoryItems;
-    if (stockFilterLow) {
-      list = list.filter((i) => i.quantity <= i.min_quantity);
+    if (selectedCategory && selectedCategory !== 'all') {
+      list = list.filter((i) => i.products.category_id === selectedCategory);
+    }
+    if (stockFilterType === 'low') {
+      list = list.filter(
+        (i) =>
+          (Number(i.quantity) || 0) > 0 &&
+          (Number(i.quantity) || 0) <= (Number(i.min_quantity) || 0)
+      );
+    } else if (stockFilterType === 'out') {
+      list = list.filter((i) => (Number(i.quantity) || 0) <= 0);
     }
     if (stockSearch.trim()) {
       const q = stockSearch.toLowerCase();
@@ -88,7 +170,7 @@ export default function DashboardScreen() {
       );
     }
     return list;
-  }, [inventoryItems, stockFilterLow, stockSearch]);
+  }, [inventoryItems, selectedCategory, stockFilterType, stockSearch]);
 
   // Dynamic greeting based on time of day
   const greeting = useMemo(() => {
@@ -98,18 +180,69 @@ export default function DashboardScreen() {
     return 'Good evening';
   }, []);
 
-  const userName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Nadi';
-  const userInitial = userName.charAt(0).toUpperCase();
+  const userName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Owner';
+  const userInitials = useMemo(() => {
+    if (!currentUser?.name) return 'OD';
+    const parts = currentUser.name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return parts[0].slice(0, 2).toUpperCase();
+  }, [currentUser?.name]);
+
+  const userInitial = userInitials;
+
+  const formattedDate = useMemo(() => {
+    const now = new Date();
+    const day = now.getDate();
+    const month = now.toLocaleDateString('en-US', { month: 'long' }).toUpperCase();
+    const year = now.getFullYear();
+    return `${day} ${month} ${year}`;
+  }, []);
   const branchSubtitle = currentBranch?.name
     ? currentBranch.name.includes('—')
       ? currentBranch.name
       : `Sugarcrumb — ${currentBranch.name}`
     : 'Sugarcrumb — Main Street';
 
+  const branchDisplayName = currentBranch?.name
+    ? currentBranch.name.includes('—')
+      ? currentBranch.name.split('—')[1].trim()
+      : currentBranch.name
+    : 'Colombo Branch';
+
   // Format currency
   const formatRs = useCallback((num: number) => {
     return 'Rs ' + num.toLocaleString();
   }, []);
+
+  // Load all active branches for Profile tab
+  useEffect(() => {
+    setLoadingBranches(true);
+    branchesApi
+      .getActive()
+      .then((data) => {
+        setAllBranches(data);
+      })
+      .catch((err) => {
+        console.error('Failed to load branches for profile:', err);
+      })
+      .finally(() => {
+        setLoadingBranches(false);
+      });
+  }, []);
+
+  const handleSelectBranch = async (branch: Branch) => {
+    if (branch.id === currentBranch?.id) return;
+    try {
+      setSwitchingBranchId(branch.id);
+      await selectBranch(branch);
+    } catch (err) {
+      console.error('Failed to switch branch:', err);
+    } finally {
+      setSwitchingBranchId(null);
+    }
+  };
 
   const handleSwitchBranch = async () => {
     await clearBranch();
@@ -122,279 +255,199 @@ export default function DashboardScreen() {
   };
 
   // ==========================================
-  // TAB 1: HOME TAB (Matches the user's image)
+  // TAB 1: HOME TAB (Matches the user's design)
   // ==========================================
   const renderHomeTab = () => (
     <ScrollView
-      style={styles.tabScroll}
-      contentContainerStyle={styles.scrollContent}
+      style={styles.homeTabScroll}
+      contentContainerStyle={styles.homeScrollContent}
       showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#FFFFFF"
+          colors={['#0D7F41']}
+        />
+      }
     >
-      {/* Top Greeting Section */}
-      <View style={styles.headerRow}>
-        <View style={styles.headerTitles}>
-          <Text style={styles.greetingTitle}>
-            {greeting}, {userName}
-          </Text>
+      {/* Top Green Gradient Banner Header Card */}
+      <LinearGradient
+        colors={['#06572A', '#0D7F41', '#14964F']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.85, y: 1 }}
+        style={styles.greenHeaderGradient}
+      >
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerDateAndGreeting}>
+            <Text style={styles.headerDateBadge}>{formattedDate}</Text>
+            <Text style={styles.headerGreetingText}>
+              {greeting}, {userName}
+            </Text>
+          </View>
           <TouchableOpacity
-            style={styles.branchSubtitleRow}
-            onPress={handleSwitchBranch}
-            activeOpacity={0.7}
+            style={styles.headerProfileSquircle}
+            onPress={() => setActiveTab('profile')}
+            activeOpacity={0.8}
           >
-            <Text style={styles.branchSubtitleText}>{branchSubtitle}</Text>
-            <Ionicons name="chevron-down" size={14} color={colors.textSecondary} />
+            <Text style={styles.headerProfileInitials}>{userInitials}</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Branch Pill (matching reference image) */}
         <TouchableOpacity
-          style={styles.avatarButton}
-          onPress={() => setActiveTab('profile')}
-          activeOpacity={0.8}
+          style={styles.headerBranchPill}
+          onPress={handleSwitchBranch}
+          activeOpacity={0.75}
         >
-          <Text style={styles.avatarText}>{userInitial}</Text>
+          <Ionicons name="business-outline" size={15} color="#FFFFFF" />
+          <Text style={styles.headerBranchText}>{branchDisplayName}</Text>
+          <Ionicons name="chevron-down" size={13} color="rgba(255, 255, 255, 0.85)" />
         </TouchableOpacity>
-      </View>
+      </LinearGradient>
 
-      {/* Hero Card: Today's Income */}
-      <View style={styles.heroCard}>
-        <Text style={styles.heroLabel}>TODAY&#39;S INCOME</Text>
-        <Text style={styles.heroAmount}>Rs 92,800</Text>
-        <View style={styles.heroPillRow}>
-          <View style={styles.heroPill}>
-            <Ionicons name="trending-up" size={14} color="#FFFFFF" />
-            <Text style={styles.heroPillTrend}>+8%</Text>
-            <Text style={styles.heroPillSub}>vs yesterday</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Two Stat Cards: Orders Today & Avg Order */}
-      <View style={styles.twoColRow}>
-        {/* Left Card: Orders Today */}
-        <View style={styles.statCard}>
-          <Text style={styles.statCardLabel}>ORDERS TODAY</Text>
-          <Text style={styles.statCardNumber}>38</Text>
-          <Text style={styles.statCardSub}>8 unpaid</Text>
-        </View>
-
-        {/* Right Card: Avg Order */}
-        <View style={styles.statCard}>
-          <Text style={styles.statCardLabel}>AVG ORDER</Text>
-          <Text style={styles.statCardNumber}>Rs 2,442</Text>
-          <Text style={styles.statCardSub}>per ticket</Text>
-        </View>
-      </View>
-
-      {/* Low Stock Reorder Level Alert Card */}
-      <TouchableOpacity
-        style={styles.alertCard}
-        onPress={() => {
-          setStockFilterLow(true);
-          setActiveTab('stock');
-        }}
-        activeOpacity={0.7}
-      >
-        <View style={styles.alertLeftIcon}>
-          <Ionicons name="warning-outline" size={20} color={colors.alertText} />
-        </View>
-        <View style={styles.alertContent}>
-          <Text style={styles.alertTitle}>
-            {lowStockCount} items below reorder level
-          </Text>
-          <Text style={styles.alertSubtitle} numberOfLines={1}>
-            {lowStockSummaryText}
-          </Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={colors.alertText} />
-      </TouchableOpacity>
-
-      {/* "Jump to" Section */}
-      <Text style={styles.jumpToHeading}>Jump to</Text>
-
-      <View style={styles.jumpList}>
-        {/* Sales Jump Card */}
-        <TouchableOpacity
-          style={styles.jumpCard}
-          onPress={() => setActiveTab('sales')}
-          activeOpacity={0.7}
-        >
-          <View style={styles.jumpCardLeft}>
-            <View style={[styles.jumpIconCircle, { backgroundColor: colors.jumpSalesBg }]}>
-              <Ionicons name="trending-up" size={22} color={colors.primary} />
+      {/* Main Home Content */}
+      <View style={styles.homeBodyContent}>
+        {/* Four Metric Cards: Today Sales, Order Revenue, Today Orders, Low Stock */}
+        <View style={styles.cardsGrid}>
+          <View style={styles.cardRow}>
+            {/* Card 1: Today Sales */}
+            <View style={styles.metricCard}>
+              <View style={styles.metricIconCircle}>
+                <Ionicons name="trending-up" size={20} color="#059669" />
+              </View>
+              <Text style={styles.metricLabel}>Today Sales</Text>
+              {loadingReport ? (
+                <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
+              ) : (
+                <Text style={styles.metricValue}>{formatRs(reportStats?.totalSales ?? 0)}</Text>
+              )}
+              <View style={styles.metricFooterRow}>
+                <Ionicons
+                  name={reportStats?.salesTrendPositive === false ? 'arrow-down-circle' : 'arrow-up-circle'}
+                  size={12}
+                  color={reportStats?.salesTrendPositive === false ? '#DC2626' : '#16A34A'}
+                />
+                <Text
+                  style={[
+                    styles.metricFooterText,
+                    { color: reportStats?.salesTrendPositive === false ? '#DC2626' : '#16A34A' },
+                  ]}
+                >
+                  {reportStats?.salesTrend ?? '0%'} vs yesterday
+                </Text>
+              </View>
             </View>
-            <View style={styles.jumpTextGroup}>
-              <Text style={styles.jumpTitle}>Sales</Text>
-              <Text style={styles.jumpSubtitle}>Charts & orders</Text>
+
+            {/* Card 2: Order Revenue */}
+            <View style={styles.metricCard}>
+              <View style={styles.metricIconCircle}>
+                <Ionicons name="wallet-outline" size={20} color="#059669" />
+              </View>
+              <Text style={styles.metricLabel}>Order Revenue</Text>
+              {loadingReport ? (
+                <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
+              ) : (
+                <Text style={styles.metricValue}>{formatRs(reportStats?.revenue ?? 0)}</Text>
+              )}
+              <View style={styles.metricFooterRow}>
+                <Ionicons name="shield-checkmark-outline" size={12} color="#059669" />
+                <Text style={[styles.metricFooterText, { color: '#059669' }]}>
+                  {reportStats?.profitMargin ?? 0}% margin
+                </Text>
+              </View>
             </View>
           </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-        </TouchableOpacity>
 
-        {/* Stock Jump Card */}
-        <TouchableOpacity
-          style={styles.jumpCard}
-          onPress={() => {
-            setStockFilterLow(false);
-            setActiveTab('stock');
-          }}
-          activeOpacity={0.7}
-        >
-          <View style={styles.jumpCardLeft}>
-            <View style={[styles.jumpIconCircle, { backgroundColor: colors.jumpStockBg }]}>
-              <Ionicons name="cube-outline" size={22} color={colors.primary} />
+          <View style={styles.cardRow}>
+            {/* Card 3: Today Orders */}
+            <View style={styles.metricCard}>
+              <View style={styles.metricIconCircle}>
+                <Ionicons name="bag-handle-outline" size={20} color="#059669" />
+              </View>
+              <Text style={styles.metricLabel}>Today Orders</Text>
+              {loadingReport ? (
+                <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
+              ) : (
+                <Text style={styles.metricValue}>
+                  {(reportStats?.totalOrders ?? 0).toLocaleString()}
+                </Text>
+              )}
+              <View style={styles.metricFooterRow}>
+                <Ionicons name="pricetag-outline" size={12} color={colors.textMuted} />
+                <Text style={styles.metricFooterText}>
+                  Avg {formatRs(reportStats?.avgOrderValue ?? 0)}
+                </Text>
+              </View>
             </View>
-            <View style={styles.jumpTextGroup}>
-              <Text style={styles.jumpTitle}>Stock</Text>
-              <Text style={styles.jumpSubtitle}>{totalProductsCount} products</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-        </TouchableOpacity>
 
-        {/* Reports Jump Card */}
-        <TouchableOpacity
-          style={styles.jumpCard}
-          onPress={() => setActiveTab('reports')}
-          activeOpacity={0.7}
-        >
-          <View style={styles.jumpCardLeft}>
-            <View style={[styles.jumpIconCircle, { backgroundColor: colors.jumpReportsBg }]}>
-              <Ionicons name="stats-chart-outline" size={22} color={colors.primary} />
-            </View>
-            <View style={styles.jumpTextGroup}>
-              <Text style={styles.jumpTitle}>Reports</Text>
-              <Text style={styles.jumpSubtitle}>Financial & sales trends</Text>
-            </View>
+            {/* Card 4: Low Stock */}
+            <TouchableOpacity
+              style={styles.metricCard}
+              onPress={() => {
+                setStockFilterType('low');
+                setActiveTab('stock');
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.metricIconCircle, { backgroundColor: '#FEF3C7' }]}>
+                <Ionicons name="warning-outline" size={20} color="#D97706" />
+              </View>
+              <Text style={styles.metricLabel}>Low Stock</Text>
+              {loadingInventory ? (
+                <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
+              ) : (
+                <Text style={styles.metricValue}>{inventoryStats.low}</Text>
+              )}
+              <View style={styles.metricFooterRow}>
+                <Ionicons name="cube-outline" size={12} color="#D97706" />
+                <Text style={[styles.metricFooterText, { color: '#D97706' }]}>
+                  {inventoryStats.out} out of stock
+                </Text>
+              </View>
+            </TouchableOpacity>
           </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-        </TouchableOpacity>
+        </View>
+
+        {/* Today's Sales Overview */}
+        <SalesOverviewCard
+          title="Today's Sales Overview"
+          actionLabel="View all"
+          onActionPress={() => setActiveTab('sales')}
+          chartData={salesOverviewData}
+          total={reportStats?.totalSales ?? 0}
+          trendPercentage={reportStats?.salesTrend ?? '0%'}
+          trendPositive={reportStats?.salesTrendPositive !== false}
+          loading={loadingReport}
+          variant="line"
+          amountLabel="TODAY'S SALES"
+        />
+
+        {/* Top Selling Products */}
+        <View style={styles.topProductsSpacer}>
+          <TopProductsCard
+            title="Top Selling Products"
+            products={reportData?.topProducts ?? []}
+            actionLabel="View report"
+            onActionPress={() => setActiveTab('reports')}
+          />
+        </View>
       </View>
     </ScrollView>
   );
 
   // ==========================================
-  // TAB 2: SALES TAB
+  // TAB 2: SALES TAB (Remade to match design)
   // ==========================================
   const renderSalesTab = () => (
-    <ScrollView
-      style={styles.tabScroll}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.pageTitle}>Sales & Orders</Text>
-        <View style={styles.periodPillGroup}>
-          {(['today', 'week', 'month'] as const).map((p) => (
-            <TouchableOpacity
-              key={p}
-              onPress={() => setSalesPeriod(p)}
-              style={[
-                styles.periodButton,
-                salesPeriod === p && styles.periodButtonActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.periodButtonText,
-                  salesPeriod === p && styles.periodButtonTextActive,
-                ]}
-              >
-                {p === 'today' ? 'Today' : p === 'week' ? 'Weekly' : 'Monthly'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
+    <SalesScreen />
+  );
 
-      {/* Sales Summary Card */}
-      <View style={styles.heroCard}>
-        <Text style={styles.heroLabel}>
-          {salesPeriod === 'today'
-            ? "TODAY'S TOTAL SALES"
-            : salesPeriod === 'week'
-            ? 'THIS WEEK SALES'
-            : 'THIS MONTH SALES'}
-        </Text>
-        <Text style={styles.heroAmount}>
-          {salesPeriod === 'today'
-            ? 'Rs 92,800'
-            : salesPeriod === 'week'
-            ? 'Rs 584,200'
-            : 'Rs 2,340,000'}
-        </Text>
-        <View style={styles.heroPillRow}>
-          <View style={styles.heroPill}>
-            <Text style={styles.heroPillTrend}>
-              {salesPeriod === 'today' ? '38 Orders' : salesPeriod === 'week' ? '245 Orders' : '980 Orders'}
-            </Text>
-            <Text style={styles.heroPillSub}>• 92% Settled</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Key Sales Performance Metrics */}
-      <View style={styles.twoColRow}>
-        <View style={styles.statCard}>
-          <Text style={styles.statCardLabel}>PAID ORDERS</Text>
-          <Text style={styles.statCardNumber}>
-            {salesPeriod === 'today' ? '30' : salesPeriod === 'week' ? '218' : '895'}
-          </Text>
-          <View style={styles.statSubRow}>
-            <Ionicons name="checkmark-circle" size={14} color={colors.successText} />
-            <Text style={[styles.statCardSub, { color: colors.successText }]}>Fully paid</Text>
-          </View>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statCardLabel}>UNPAID / PENDING</Text>
-          <Text style={styles.statCardNumber}>
-            {salesPeriod === 'today' ? '8' : salesPeriod === 'week' ? '27' : '85'}
-          </Text>
-          <View style={styles.statSubRow}>
-            <Ionicons name="time-outline" size={14} color={colors.dangerText} />
-            <Text style={[styles.statCardSub, { color: colors.dangerText }]}>Rs 12,400 open</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Recent Orders List */}
-      <Text style={styles.jumpToHeading}>Recent Orders</Text>
-
-      <View style={styles.ordersList}>
-        {[
-          { id: 'ORD-1094', time: '14:22', items: 'Custom Chocolate Cake (1kg), 2 Cupcakes', total: 4200, status: 'Paid' },
-          { id: 'ORD-1093', time: '13:50', items: 'Red Velvet Pastry, Iced Caramel Latte', total: 1850, status: 'Paid' },
-          { id: 'ORD-1092', time: '13:15', items: 'Birthday Special Butter Cake (2kg)', total: 6800, status: 'Unpaid' },
-          { id: 'ORD-1091', time: '12:40', items: 'Croissant Box (6 pcs)', total: 2400, status: 'Paid' },
-        ].map((ord) => (
-          <View key={ord.id} style={styles.orderCard}>
-            <View style={styles.orderLeft}>
-              <View style={styles.orderIdRow}>
-                <Text style={styles.orderIdText}>{ord.id}</Text>
-                <Text style={styles.orderTimeText}>{ord.time}</Text>
-              </View>
-              <Text style={styles.orderItemsText} numberOfLines={1}>{ord.items}</Text>
-            </View>
-            <View style={styles.orderRight}>
-              <Text style={styles.orderAmountText}>{formatRs(ord.total)}</Text>
-              <View
-                style={[
-                  styles.statusTag,
-                  ord.status === 'Paid' ? styles.statusTagPaid : styles.statusTagUnpaid,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.statusTagText,
-                    ord.status === 'Paid' ? styles.statusTagPaidText : styles.statusTagUnpaidText,
-                  ]}
-                >
-                  {ord.status}
-                </Text>
-              </View>
-            </View>
-          </View>
-        ))}
-      </View>
-    </ScrollView>
+  // ==========================================
+  // TAB 3: EXPENSES TAB
+  // ==========================================
+  const renderExpensesTab = () => (
+    <ExpensesScreen />
   );
 
   // ==========================================
@@ -411,17 +464,36 @@ export default function DashboardScreen() {
           <Text style={styles.pageTitle}>Stock & Inventory</Text>
           <Text style={styles.pageSubtitle}>{inventoryItems.length} registered products</Text>
         </View>
-        <TouchableOpacity
-          style={styles.addProductBtn}
-          onPress={() => router.push('/add_product')}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="add" size={16} color={colors.textLight} />
-          <Text style={styles.addProductBtnText}>Add Product</Text>
-        </TouchableOpacity>
       </View>
 
-      {/* Search & Filter Bar */}
+      {/* 3 Summary Cards Top of Searchbar: Total Products, Low Stock, Out of Stock */}
+      <View style={styles.stockStatsRow}>
+        {/* Card 1: Total Products */}
+        <View style={styles.stockStatCard}>
+          <Text style={[styles.stockStatValue, { color: '#059669' }]}>
+            {inventoryStats.total}
+          </Text>
+          <Text style={styles.stockStatLabel}>Total Products</Text>
+        </View>
+
+        {/* Card 2: Low Stock */}
+        <View style={styles.stockStatCard}>
+          <Text style={[styles.stockStatValue, { color: '#D97706' }]}>
+            {inventoryStats.low}
+          </Text>
+          <Text style={styles.stockStatLabel}>Low Stock</Text>
+        </View>
+
+        {/* Card 3: Out of Stock */}
+        <View style={styles.stockStatCard}>
+          <Text style={[styles.stockStatValue, { color: '#DC2626' }]}>
+            {inventoryStats.out}
+          </Text>
+          <Text style={styles.stockStatLabel}>Out of Stock</Text>
+        </View>
+      </View>
+
+      {/* Search Bar & Stock Status Dropdown Filter */}
       <View style={styles.searchRow}>
         <View style={styles.stockSearchContainer}>
           <Ionicons name="search-outline" size={16} color={colors.textMuted} />
@@ -432,23 +504,224 @@ export default function DashboardScreen() {
             value={stockSearch}
             onChangeText={setStockSearch}
           />
+          {stockSearch.length > 0 && (
+            <TouchableOpacity onPress={() => setStockSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* Stock Status Dropdown Button */}
         <TouchableOpacity
           style={[
-            styles.filterPillBtn,
-            stockFilterLow && styles.filterPillBtnActive,
+            styles.stockFilterBtn,
+            stockFilterType === 'low' && styles.stockFilterBtnLow,
+            stockFilterType === 'out' && styles.stockFilterBtnOut,
           ]}
-          onPress={() => setStockFilterLow((prev) => !prev)}
+          onPress={() => setStockFilterModalVisible(true)}
+          activeOpacity={0.7}
         >
+          <Ionicons
+            name={
+              stockFilterType === 'out'
+                ? 'close-circle'
+                : stockFilterType === 'low'
+                ? 'warning'
+                : 'layers-outline'
+            }
+            size={14}
+            color={
+              stockFilterType === 'out'
+                ? '#DC2626'
+                : stockFilterType === 'low'
+                ? '#D97706'
+                : colors.primary
+            }
+          />
           <Text
             style={[
-              styles.filterPillBtnText,
-              stockFilterLow && styles.filterPillBtnTextActive,
+              styles.stockFilterBtnText,
+              stockFilterType === 'low' && styles.stockFilterBtnTextLow,
+              stockFilterType === 'out' && styles.stockFilterBtnTextOut,
             ]}
+            numberOfLines={1}
           >
-            Low Stock ({lowStockItems.length})
+            {stockFilterType === 'out'
+              ? 'Out Stock'
+              : stockFilterType === 'low'
+              ? 'Low Stock'
+              : 'All Stock'}
           </Text>
+          <Ionicons
+            name="chevron-down"
+            size={12}
+            color={
+              stockFilterType === 'out'
+                ? '#DC2626'
+                : stockFilterType === 'low'
+                ? '#D97706'
+                : colors.textSecondary
+            }
+          />
         </TouchableOpacity>
+      </View>
+
+      {/* Stock Status Filter Selection Modal */}
+      <Modal
+        visible={stockFilterModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setStockFilterModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setStockFilterModalVisible(false)}
+        >
+          <View style={styles.filterMenuContainer}>
+            <View style={styles.filterMenuHeader}>
+              <Text style={styles.filterMenuTitle}>Filter by Stock Status</Text>
+              <TouchableOpacity
+                onPress={() => setStockFilterModalVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={20} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Option 1: All Stock */}
+            <TouchableOpacity
+              style={[
+                styles.filterMenuItem,
+                stockFilterType === 'all' && styles.filterMenuItemActive,
+              ]}
+              onPress={() => {
+                setStockFilterType('all');
+                setStockFilterModalVisible(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.filterMenuLeft}>
+                <View style={[styles.filterIconBadge, { backgroundColor: '#ECFDF5' }]}>
+                  <Ionicons name="layers-outline" size={16} color={colors.primary} />
+                </View>
+                <View>
+                  <Text style={[styles.filterMenuLabel, stockFilterType === 'all' && styles.filterMenuLabelActive]}>
+                    All Stock
+                  </Text>
+                  <Text style={styles.filterMenuSub}>Show all products</Text>
+                </View>
+              </View>
+              <View style={styles.filterMenuRight}>
+                <View style={[styles.filterCountBadge, { backgroundColor: '#ECFDF5' }]}>
+                  <Text style={[styles.filterCountText, { color: colors.primary }]}>{inventoryStats.total}</Text>
+                </View>
+                {stockFilterType === 'all' && (
+                  <Ionicons name="checkmark-circle" size={18} color={colors.primary} />
+                )}
+              </View>
+            </TouchableOpacity>
+
+            {/* Option 2: Low Stock */}
+            <TouchableOpacity
+              style={[
+                styles.filterMenuItem,
+                stockFilterType === 'low' && styles.filterMenuItemActive,
+              ]}
+              onPress={() => {
+                setStockFilterType('low');
+                setStockFilterModalVisible(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.filterMenuLeft}>
+                <View style={[styles.filterIconBadge, { backgroundColor: '#FFFBEB' }]}>
+                  <Ionicons name="warning-outline" size={16} color="#D97706" />
+                </View>
+                <View>
+                  <Text style={[styles.filterMenuLabel, stockFilterType === 'low' && styles.filterMenuLabelActive]}>
+                    Low Stock
+                  </Text>
+                  <Text style={styles.filterMenuSub}>Quantity ≤ min threshold</Text>
+                </View>
+              </View>
+              <View style={styles.filterMenuRight}>
+                <View style={[styles.filterCountBadge, { backgroundColor: '#FFFBEB' }]}>
+                  <Text style={[styles.filterCountText, { color: '#D97706' }]}>{inventoryStats.low}</Text>
+                </View>
+                {stockFilterType === 'low' && (
+                  <Ionicons name="checkmark-circle" size={18} color="#D97706" />
+                )}
+              </View>
+            </TouchableOpacity>
+
+            {/* Option 3: Out of Stock */}
+            <TouchableOpacity
+              style={[
+                styles.filterMenuItem,
+                stockFilterType === 'out' && styles.filterMenuItemActive,
+              ]}
+              onPress={() => {
+                setStockFilterType('out');
+                setStockFilterModalVisible(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.filterMenuLeft}>
+                <View style={[styles.filterIconBadge, { backgroundColor: '#FEF2F2' }]}>
+                  <Ionicons name="close-circle-outline" size={16} color="#DC2626" />
+                </View>
+                <View>
+                  <Text style={[styles.filterMenuLabel, stockFilterType === 'out' && styles.filterMenuLabelActive]}>
+                    Out of Stock
+                  </Text>
+                  <Text style={styles.filterMenuSub}>Depleted items (0 qty)</Text>
+                </View>
+              </View>
+              <View style={styles.filterMenuRight}>
+                <View style={[styles.filterCountBadge, { backgroundColor: '#FEF2F2' }]}>
+                  <Text style={[styles.filterCountText, { color: '#DC2626' }]}>{inventoryStats.out}</Text>
+                </View>
+                {stockFilterType === 'out' && (
+                  <Ionicons name="checkmark-circle" size={18} color="#DC2626" />
+                )}
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Category Filter Pills (Under Search Bar) */}
+      <View style={styles.categoryFilterContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoryFilterScroll}
+        >
+          {categoryList.map((cat) => {
+            const isSelected = selectedCategory === cat.id;
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                style={[
+                  styles.categoryPill,
+                  isSelected && styles.categoryPillActive,
+                ]}
+                onPress={() => setSelectedCategory(cat.id)}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.categoryPillText,
+                    isSelected && styles.categoryPillTextActive,
+                  ]}
+                >
+                  {cat.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {loadingInventory ? (
@@ -462,32 +735,53 @@ export default function DashboardScreen() {
             <Ionicons name="cube-outline" size={32} color={colors.textMuted} />
           </View>
           <Text style={styles.emptyTitle}>No products matching filter</Text>
-          <Text style={styles.emptySubtitle}>Try clearing search terms or adding new products.</Text>
+          <Text style={styles.emptySubtitle}>Try clearing search terms or selecting another card filter.</Text>
         </View>
       ) : (
         <View style={styles.stockList}>
           {filteredStock.map((item) => {
-            const isLow = item.quantity <= item.min_quantity;
+            const isOut = (Number(item.quantity) || 0) <= 0;
+            const isLow = !isOut && (Number(item.quantity) || 0) <= (Number(item.min_quantity) || 0);
             return (
               <View key={item.products.item_code} style={styles.stockItemCard}>
                 <View style={styles.stockItemLeft}>
                   <Text style={styles.stockItemName}>{item.products.name}</Text>
                   <View style={styles.codeRow}>
                     <Text style={styles.stockItemCode}>{item.products.item_code}</Text>
-                    {isLow && (
-                      <View style={styles.lowStockTag}>
-                        <Ionicons name="alert-circle" size={11} color={colors.dangerText} />
-                        <Text style={styles.lowStockTagText}>Reorder Warning</Text>
+                    {isOut ? (
+                      <View style={[styles.lowStockTag, { backgroundColor: '#FEE2E2' }]}>
+                        <Ionicons name="close-circle" size={11} color={colors.danger} />
+                        <Text style={[styles.lowStockTagText, { color: colors.danger }]}>Out of Stock</Text>
                       </View>
-                    )}
+                    ) : isLow ? (
+                      <View style={[styles.lowStockTag, { backgroundColor: '#FEF3C7' }]}>
+                        <Ionicons name="alert-circle" size={11} color="#D97706" />
+                        <Text style={[styles.lowStockTagText, { color: '#B45309' }]}>Low Stock</Text>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
 
-                <View style={[styles.stockQtyPill, isLow && styles.stockQtyPillLow]}>
-                  <Text style={[styles.stockQtyNum, isLow && styles.stockQtyNumLow]}>
+                <View
+                  style={[
+                    styles.stockQtyPill,
+                    isOut ? styles.stockQtyPillOut : isLow ? styles.stockQtyPillLow : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.stockQtyNum,
+                      isOut ? styles.stockQtyNumOut : isLow ? styles.stockQtyNumLow : null,
+                    ]}
+                  >
                     {item.quantity}
                   </Text>
-                  <Text style={[styles.stockQtyUnit, isLow && styles.stockQtyNumLow]}>
+                  <Text
+                    style={[
+                      styles.stockQtyUnit,
+                      isOut ? styles.stockQtyNumOut : isLow ? styles.stockQtyNumLow : null,
+                    ]}
+                  >
                     {item.products.unit || 'units'}
                   </Text>
                 </View>
@@ -500,130 +794,167 @@ export default function DashboardScreen() {
   );
 
   // ==========================================
-  // TAB 4: REPORTS TAB
+  // TAB 4: REPORTS TAB (Remade to match design)
   // ==========================================
   const renderReportsTab = () => (
-    <ScrollView
-      style={styles.tabScroll}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.pageTitle}>Reports & Analytics</Text>
-      </View>
+    <ReportsScreen />
+  );
 
-      {/* Revenue Performance Card */}
-      <View style={styles.reportSummaryCard}>
-        <Text style={styles.reportCardTitle}>Performance Snapshot</Text>
-        <Text style={styles.reportCardDesc}>Weekly performance against branch targets</Text>
-        <View style={styles.reportMetricRow}>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>TOTAL VOLUME</Text>
-            <Text style={styles.metricValue}>Rs 584,200</Text>
+  // ==========================================
+  // TAB 5: PROFILE TAB (Matches uploaded design)
+  // ==========================================
+  const renderProfileTab = () => {
+    const singleInitial = currentUser?.name ? currentUser.name.trim()[0].toUpperCase() : 'N';
+    const userEmail = currentUser?.email || 'owner@sugarcrumb.lk';
+
+    return (
+      <ScrollView
+        style={styles.profileTabScroll}
+        contentContainerStyle={styles.profileScrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header: Title & Subtitle */}
+        <View style={styles.profileHeader}>
+          <Text style={styles.profileMainTitle}>Profile</Text>
+          <Text style={styles.profileSubtitle}>Owner & shop settings</Text>
+        </View>
+
+        {/* 1. User Card */}
+        <View style={styles.profileCard}>
+          <View style={styles.profileAvatarCircle}>
+            <Text style={styles.profileAvatarLetter}>{singleInitial}</Text>
           </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>TICKETS</Text>
-            <Text style={styles.metricValue}>245</Text>
-          </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricLabel}>AVG MARGIN</Text>
-            <Text style={[styles.metricValue, { color: colors.successText }]}>+32%</Text>
+          <View style={styles.profileUserInfo}>
+            <Text style={styles.profileUserName}>{currentUser?.name ?? 'Nadi Perera'}</Text>
+            <Text style={styles.profileUserEmail}>{userEmail}</Text>
           </View>
         </View>
-      </View>
 
-      {/* Category Breakdown */}
-      <Text style={styles.jumpToHeading}>Sales by Category</Text>
-      <View style={styles.categoryReportList}>
-        {[
-          { name: 'Custom Cakes', percent: 48, revenue: 280400, color: colors.heroCard },
-          { name: 'Cupcakes & Pastries', percent: 28, revenue: 163500, color: colors.primary },
-          { name: 'Specialty Beverages', percent: 14, revenue: 81700, color: '#D97706' },
-          { name: 'Dessert Boxes', percent: 10, revenue: 58600, color: '#64748B' },
-        ].map((c) => (
-          <View key={c.name} style={styles.categoryRowCard}>
-            <View style={styles.catLeft}>
-              <View style={[styles.catColorDot, { backgroundColor: c.color }]} />
-              <View>
-                <Text style={styles.catName}>{c.name}</Text>
-                <Text style={styles.catPercent}>{c.percent}% of total orders</Text>
+        {/* 2. Shops Section */}
+        <View style={styles.profileSectionHeader}>
+          <Text style={styles.profileSectionTitle}>Shops</Text>
+        </View>
+
+        <View style={styles.profileCardGroup}>
+          {loadingBranches && allBranches.length === 0 ? (
+            <View style={styles.profileLoadingRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.profileLoadingText}>Loading branches...</Text>
+            </View>
+          ) : allBranches.length > 0 ? (
+            allBranches.map((branch, index) => {
+              const isActive = currentBranch?.id === branch.id;
+              const isSwitching = switchingBranchId === branch.id;
+              const isLast = index === allBranches.length - 1;
+
+              return (
+                <TouchableOpacity
+                  key={branch.id}
+                  style={[
+                    styles.shopRow,
+                    !isLast && styles.shopRowDivider,
+                  ]}
+                  onPress={() => handleSelectBranch(branch)}
+                  activeOpacity={0.7}
+                  disabled={isActive || isSwitching}
+                >
+                  <View style={styles.shopInfo}>
+                    <Text style={styles.shopName}>{branch.name}</Text>
+                    <Text style={styles.shopCode}>#{branch.branch_code}</Text>
+                  </View>
+
+                  {isSwitching ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : isActive ? (
+                    <View style={styles.activeBadge}>
+                      <Text style={styles.activeBadgeText}>Active</Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            <View style={styles.shopRow}>
+              <View style={styles.shopInfo}>
+                <Text style={styles.shopName}>{currentBranch?.name ?? 'Main Branch'}</Text>
+                <Text style={styles.shopCode}>#{currentBranch?.branch_code ?? '001'}</Text>
+              </View>
+              <View style={styles.activeBadge}>
+                <Text style={styles.activeBadgeText}>Active</Text>
               </View>
             </View>
-            <Text style={styles.catRevenue}>{formatRs(c.revenue)}</Text>
-          </View>
-        ))}
-      </View>
+          )}
 
-      {/* Quick Action */}
-      <TouchableOpacity
-        style={styles.fullReportAction}
-        onPress={() => setActiveTab('stock')}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="warning-outline" size={16} color={colors.warningText} />
-        <Text style={styles.fullReportActionText}>Inspect Low Inventory Alerts</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
-
-  // ==========================================
-  // TAB 5: PROFILE TAB
-  // ==========================================
-  const renderProfileTab = () => (
-    <ScrollView
-      style={styles.tabScroll}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.pageTitle}>Staff Profile & Settings</Text>
-      </View>
-
-      {/* User Card */}
-      <View style={styles.profileUserCard}>
-        <View style={styles.profileAvatarLarge}>
-          <Text style={styles.profileAvatarLargeText}>{userInitial}</Text>
+          {/* Switch Branch Button */}
+          <TouchableOpacity
+            style={styles.switchBranchButton}
+            onPress={handleSwitchBranch}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="swap-horizontal" size={15} color={colors.primary} />
+            <Text style={styles.switchBranchButtonText}>Switch Branch</Text>
+          </TouchableOpacity>
         </View>
-        <Text style={styles.profileName}>{currentUser?.name ?? 'Staff User'}</Text>
-        <Text style={styles.profileRole}>{currentUser?.role ?? 'Staff Cashier'}</Text>
-      </View>
 
-      {/* Current Branch Details */}
-      <View style={styles.branchDetailCard}>
-        <Text style={styles.branchDetailTitle}>CURRENT ACTIVE REGISTER</Text>
-        <Text style={styles.branchDetailName}>{currentBranch?.name ?? 'Main Branch'}</Text>
-        <Text style={styles.branchDetailCode}>Branch Code: #{currentBranch?.branch_code}</Text>
-      </View>
+        {/* 3. Notifications Section */}
+        <View style={styles.profileSectionHeader}>
+          <Text style={styles.profileSectionTitle}>Notifications</Text>
+        </View>
 
-      {/* Switch Branch Button */}
-      <TouchableOpacity
-        style={styles.profileActionButton}
-        onPress={handleSwitchBranch}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="swap-horizontal" size={18} color={colors.textPrimary} />
-        <Text style={styles.actionText}>Switch Branch</Text>
-      </TouchableOpacity>
+        <View style={styles.profileCardGroup}>
+          {/* Low Stock Alerts */}
+          <View style={[styles.notificationRow, styles.shopRowDivider]}>
+            <View style={styles.notificationInfo}>
+              <Text style={styles.notificationTitle}>Low stock alerts</Text>
+              <Text style={styles.notificationSubtitle}>Push when an item hits reorder level</Text>
+            </View>
+            <Switch
+              value={lowStockAlerts}
+              onValueChange={setLowStockAlerts}
+              trackColor={{ false: '#E2E8F0', true: colors.primary }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#E2E8F0"
+            />
+          </View>
 
-      {/* Log Out Button */}
-      <TouchableOpacity
-        style={styles.profileLogoutButton}
-        onPress={handleLogout}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="log-out-outline" size={18} color={colors.dangerText} />
-        <Text style={styles.logoutActionText}>Log Out of Terminal</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
+          {/* Daily Closing Summary */}
+          <View style={styles.notificationRow}>
+            <View style={styles.notificationInfo}>
+              <Text style={styles.notificationTitle}>Daily closing summary</Text>
+              <Text style={styles.notificationSubtitle}>Income recap at 9:00 pm</Text>
+            </View>
+            <Switch
+              value={dailyClosingAlerts}
+              onValueChange={setDailyClosingAlerts}
+              trackColor={{ false: '#E2E8F0', true: colors.primary }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#E2E8F0"
+            />
+          </View>
+        </View>
+
+        {/* 4. Log Out Button */}
+        <TouchableOpacity
+          style={styles.profileLogoutButtonModern}
+          onPress={handleLogout}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="log-out-outline" size={18} color="#DC2626" />
+          <Text style={styles.profileLogoutButtonText}>Log Out of Terminal</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <StatusBar style="dark" />
       <View style={styles.container}>
         {/* Main Content Area based on Active Tab */}
         <View style={styles.contentArea}>
           {activeTab === 'home' && renderHomeTab()}
           {activeTab === 'sales' && renderSalesTab()}
+          {activeTab === 'expenses' && renderExpensesTab()}
           {activeTab === 'stock' && renderStockTab()}
           {activeTab === 'reports' && renderReportsTab()}
           {activeTab === 'profile' && renderProfileTab()}
@@ -677,6 +1008,29 @@ export default function DashboardScreen() {
             </Text>
           </TouchableOpacity>
 
+          {/* 3. Expenses Tab */}
+          <TouchableOpacity
+            style={styles.tabItem}
+            onPress={() => setActiveTab('expenses')}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.tabIconPill, activeTab === 'expenses' && styles.tabIconPillActive]}>
+              <Ionicons
+                name={activeTab === 'expenses' ? 'receipt' : 'receipt-outline'}
+                size={20}
+                color={activeTab === 'expenses' ? colors.tabActiveText : colors.tabInactiveText}
+              />
+            </View>
+            <Text
+              style={[
+                styles.tabLabel,
+                activeTab === 'expenses' ? styles.tabLabelActive : styles.tabLabelInactive,
+              ]}
+            >
+              Expenses
+            </Text>
+          </TouchableOpacity>
+
           {/* 3. Stock Tab */}
           <TouchableOpacity
             style={styles.tabItem}
@@ -722,29 +1076,6 @@ export default function DashboardScreen() {
               Reports
             </Text>
           </TouchableOpacity>
-
-          {/* 5. Profile Tab */}
-          <TouchableOpacity
-            style={styles.tabItem}
-            onPress={() => setActiveTab('profile')}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.tabIconPill, activeTab === 'profile' && styles.tabIconPillActive]}>
-              <Ionicons
-                name={activeTab === 'profile' ? 'person' : 'person-outline'}
-                size={21}
-                color={activeTab === 'profile' ? colors.tabActiveText : colors.tabInactiveText}
-              />
-            </View>
-            <Text
-              style={[
-                styles.tabLabel,
-                activeTab === 'profile' ? styles.tabLabelActive : styles.tabLabelInactive,
-              ]}
-            >
-              Profile
-            </Text>
-          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaView>
@@ -755,6 +1086,68 @@ export default function DashboardScreen() {
 const serifFont = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
 
 const styles = StyleSheet.create({
+  // Home Metric Cards
+  cardsGrid: {
+    gap: 12,
+    marginBottom: 16,
+  },
+  cardRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  metricCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#EDF2F7',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  metricIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#E8F8EE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  metricLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  metricValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0F172A',
+    letterSpacing: -0.3,
+  },
+  metricLoader: {
+    marginVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  metricFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  metricFooterText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
+  },
+  topProductsSpacer: {
+    marginTop: 16,
+  },
+
   safeArea: {
     flex: 1,
     backgroundColor: colors.background,
@@ -764,6 +1157,90 @@ const styles = StyleSheet.create({
   },
   contentArea: {
     flex: 1,
+  },
+  homeTabScroll: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  homeScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? 14 : 10,
+    paddingBottom: 28,
+  },
+  greenHeaderGradient: {
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 16,
+    shadowColor: '#06572A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  headerDateAndGreeting: {
+    flex: 1,
+    paddingRight: 16,
+  },
+  headerDateBadge: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#A7F3D0',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  headerGreetingText: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -0.4,
+  },
+  headerProfileSquircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  headerProfileInitials: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  headerBranchPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    gap: 7,
+    marginTop: 14,
+  },
+  headerBranchText: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  homeBodyContent: {
+    marginTop: 0,
   },
   tabScroll: {
     flex: 1,
@@ -826,211 +1303,18 @@ const styles = StyleSheet.create({
   // ----------------------------------------------------
   // Hero Card (Today's Income)
   // ----------------------------------------------------
-  heroCard: {
-    backgroundColor: colors.heroCard,
-    borderRadius: 24,
-    paddingHorizontal: 22,
-    paddingTop: 20,
-    paddingBottom: 22,
-    marginBottom: 16,
-    shadowColor: colors.heroCard,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  heroLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.8)',
-    letterSpacing: 0.8,
-    marginBottom: 6,
-  },
-  heroAmount: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: colors.textLight,
-    fontFamily: serifFont,
-    letterSpacing: -0.5,
-  },
-  heroPillRow: {
-    flexDirection: 'row',
-    marginTop: 12,
-  },
-  heroPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.heroPill,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 14,
-    gap: 6,
-  },
-  heroPillTrend: {
-    color: colors.textLight,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  heroPillSub: {
-    color: 'rgba(255, 255, 255, 0.85)',
-    fontSize: 12,
-    fontWeight: '500',
-  },
 
   // ----------------------------------------------------
   // Two Stat Cards (Orders Today & Avg Order)
   // ----------------------------------------------------
-  twoColRow: {
-    flexDirection: 'row',
-    gap: 14,
-    marginBottom: 16,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: colors.textPrimary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  statCardLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.textSecondary,
-    letterSpacing: 0.6,
-    marginBottom: 8,
-  },
-  statCardNumber: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    fontFamily: serifFont,
-    marginBottom: 4,
-  },
-  statCardSub: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  statSubRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
 
   // ----------------------------------------------------
   // Alert Reorder Card
   // ----------------------------------------------------
-  alertCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.alertBg,
-    borderWidth: 1,
-    borderColor: colors.alertBorder,
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 26,
-    gap: 12,
-  },
-  alertLeftIcon: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  alertEmoji: {
-    fontSize: 20,
-  },
-  alertContent: {
-    flex: 1,
-  },
-  alertTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.alertText,
-    marginBottom: 2,
-  },
-  alertSubtitle: {
-    fontSize: 12,
-    color: colors.alertSubtext,
-    fontWeight: '500',
-  },
-  alertChevron: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.alertText,
-  },
 
   // ----------------------------------------------------
   // "Jump to" Section
   // ----------------------------------------------------
-  jumpToHeading: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    fontFamily: serifFont,
-    marginBottom: 14,
-  },
-  jumpList: {
-    gap: 12,
-    marginBottom: 20,
-  },
-  jumpCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: colors.textPrimary,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  jumpCardLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    flex: 1,
-  },
-  jumpIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  jumpEmoji: {
-    fontSize: 22,
-  },
-  jumpTextGroup: {
-    flex: 1,
-    gap: 2,
-  },
-  jumpTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  jumpSubtitle: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  jumpChevron: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textMuted,
-    marginLeft: 6,
-  },
 
   // ----------------------------------------------------
   // Sales Tab Styles
@@ -1046,127 +1330,72 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: colors.textPrimary,
-    fontFamily: serifFont,
   },
   pageSubtitle: {
     fontSize: 13,
     color: colors.textSecondary,
     marginTop: 2,
   },
-  periodPillGroup: {
-    flexDirection: 'row',
-    backgroundColor: colors.surfaceSand,
-    borderRadius: 12,
-    padding: 3,
-  },
-  periodButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 9,
-  },
-  periodButtonActive: {
-    backgroundColor: colors.surface,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  periodButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  periodButtonTextActive: {
-    color: colors.textPrimary,
-    fontWeight: '700',
-  },
-  ordersList: {
-    gap: 10,
-  },
-  orderCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  orderLeft: {
-    flex: 1,
-    paddingRight: 10,
-  },
-  orderIdRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  orderIdText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  orderTimeText: {
-    fontSize: 12,
-    color: colors.textMuted,
-  },
-  orderItemsText: {
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  orderRight: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  orderAmountText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.textPrimary,
-  },
-  statusTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  statusTagText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  statusTagPaid: {
-    backgroundColor: colors.successBg,
-  },
-  statusTagPaidText: {
-    color: colors.successText,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  statusTagUnpaid: {
-    backgroundColor: colors.dangerBg,
-  },
-  statusTagUnpaidText: {
-    color: colors.dangerText,
-    fontSize: 11,
-    fontWeight: '700',
-  },
 
   // ----------------------------------------------------
   // Stock Tab Styles
   // ----------------------------------------------------
-  addProductBtn: {
+  stockStatsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
-    gap: 6,
+    gap: 10,
+    marginBottom: 16,
   },
-  addProductBtnText: {
-    color: colors.textLight,
-    fontWeight: '700',
+  stockStatCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  stockStatValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  stockStatLabel: {
+    fontSize: 11.5,
+    fontWeight: '500',
+    color: '#64748B',
+    textAlign: 'center',
+  },
+  categoryFilterContainer: {
+    marginBottom: 16,
+  },
+  categoryFilterScroll: {
+    gap: 8,
+    paddingRight: 16,
+  },
+  categoryPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceSand,
+  },
+  categoryPillActive: {
+    backgroundColor: colors.primary,
+  },
+  categoryPillText: {
     fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  categoryPillTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   searchRow: {
     flexDirection: 'row',
@@ -1191,25 +1420,128 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textPrimary,
   },
-  filterPillBtn: {
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-    borderRadius: 12,
-    backgroundColor: colors.surfaceSand,
+  stockFilterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 44,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    gap: 6,
   },
-  filterPillBtnActive: {
-    backgroundColor: colors.alertBg,
-    borderColor: colors.alertBorder,
+  stockFilterBtnLow: {
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
   },
-  filterPillBtnText: {
-    fontSize: 12,
+  stockFilterBtnOut: {
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  stockFilterBtnText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  stockFilterBtnTextLow: {
+    color: '#D97706',
+  },
+  stockFilterBtnTextOut: {
+    color: '#DC2626',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  filterMenuContainer: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  filterMenuHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  filterMenuTitle: {
+    fontSize: 15,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: '#0F172A',
   },
-  filterPillBtnTextActive: {
-    color: colors.alertText,
+  filterMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  filterMenuItemActive: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  filterMenuLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  filterIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterMenuLabel: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  filterMenuLabelActive: {
+    fontWeight: '700',
+  },
+  filterMenuSub: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  filterMenuRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  filterCountBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  filterCountText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  stockQtyPillOut: {
+    backgroundColor: '#FEE2E2',
+  },
+  stockQtyNumOut: {
+    color: '#DC2626',
   },
   stockList: {
     gap: 10,
@@ -1283,210 +1615,198 @@ const styles = StyleSheet.create({
     color: colors.primaryText,
   },
 
+
   // ----------------------------------------------------
-  // Reports Tab Styles
+  // Profile Tab Styles (Matching uploaded design & theme)
   // ----------------------------------------------------
-  reportSummaryCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
+  profileTabScroll: {
+    flex: 1,
+    backgroundColor: '#F9FBF9',
+  },
+  profileScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'android' ? 14 : 10,
+    paddingBottom: 48,
+  },
+  profileHeader: {
     marginBottom: 20,
   },
-  reportCardTitle: {
-    fontSize: 17,
-    fontWeight: '700',
+  profileMainTitle: {
+    fontSize: 24,
+    fontWeight: '800',
     color: colors.textPrimary,
   },
-  reportCardDesc: {
+  profileSubtitle: {
     fontSize: 13,
     color: colors.textSecondary,
     marginTop: 2,
-    marginBottom: 16,
   },
-  reportMetricRow: {
+  profileCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: colors.borderSubtle,
-    paddingTop: 14,
-  },
-  metricItem: {
-    alignItems: 'flex-start',
-  },
-  metricLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.textMuted,
-    letterSpacing: 0.5,
-    marginBottom: 4,
-  },
-  metricValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    fontFamily: serifFont,
-  },
-  categoryReportList: {
-    gap: 10,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: '#E8ECE8',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
     marginBottom: 24,
   },
-  categoryRowCard: {
+  profileAvatarCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#E8F5E9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileAvatarLetter: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#0D7F41',
+    fontFamily: serifFont,
+  },
+  profileUserInfo: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  profileUserName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#18181B',
+  },
+  profileUserEmail: {
+    fontSize: 14,
+    color: '#71717A',
+    marginTop: 3,
+  },
+  profileSectionHeader: {
+    marginBottom: 12,
+  },
+  profileSectionTitle: {
+    fontFamily: serifFont,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#18181B',
+    letterSpacing: -0.3,
+  },
+  profileCardGroup: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#E8ECE8',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 2,
+    marginBottom: 26,
+  },
+  profileLoadingRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  profileLoadingText: {
+    fontSize: 13,
+    color: '#71717A',
+  },
+  shopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingVertical: 15,
   },
-  catLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  shopRowDivider: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F2',
   },
-  catColorDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+  shopInfo: {
+    flex: 1,
+    paddingRight: 12,
   },
-  catName: {
-    fontSize: 14,
+  shopName: {
+    fontSize: 16,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: '#18181B',
   },
-  catPercent: {
+  shopCode: {
+    fontSize: 13,
+    color: '#71717A',
+    marginTop: 3,
+  },
+  activeBadge: {
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  activeBadgeText: {
     fontSize: 12,
-    color: colors.textMuted,
-  },
-  catRevenue: {
-    fontSize: 14,
     fontWeight: '700',
-    color: colors.textPrimary,
+    color: '#0D7F41',
   },
-  fullReportAction: {
+  switchBranchButton: {
     flexDirection: 'row',
-    backgroundColor: colors.surfaceSand,
-    borderRadius: 14,
-    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 8,
+    gap: 6,
+    paddingVertical: 13,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F2',
+    marginTop: 2,
   },
-  fullReportActionText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-
-  // ----------------------------------------------------
-  // Profile Tab Styles
-  // ----------------------------------------------------
-  profileUserCard: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 16,
-  },
-  profileAvatarLarge: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.avatarBg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 1.5,
-    borderColor: '#EBD8C4',
-  },
-  profileAvatarLargeText: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: colors.avatarText,
-    fontFamily: serifFont,
-  },
-  profileName: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    fontFamily: serifFont,
-  },
-  profileRole: {
+  switchBranchButtonText: {
     fontSize: 13,
+    fontWeight: '700',
     color: colors.primary,
-    fontWeight: '700',
-    marginTop: 4,
   },
-  branchDetailCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 20,
+  notificationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 15,
   },
-  branchDetailTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.textMuted,
-    letterSpacing: 0.6,
-    marginBottom: 6,
+  notificationInfo: {
+    flex: 1,
+    paddingRight: 14,
   },
-  branchDetailName: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.textPrimary,
+  notificationTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#18181B',
   },
-  branchDetailCode: {
+  notificationSubtitle: {
     fontSize: 13,
-    color: colors.textSecondary,
+    color: '#71717A',
+    marginTop: 2,
+  },
+  profileLogoutButtonModern: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    paddingVertical: 15,
+    borderRadius: 18,
+    gap: 8,
     marginTop: 4,
+    marginBottom: 24,
   },
-  profileActionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: 14,
-    borderRadius: 14,
-    marginBottom: 12,
-    gap: 8,
-  },
-  actionIcon: {
-    fontSize: 16,
-  },
-  actionText: {
+  profileLogoutButtonText: {
     fontSize: 15,
     fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  profileLogoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.dangerBg,
-    borderWidth: 1,
-    borderColor: colors.dangerBorder,
-    paddingVertical: 14,
-    borderRadius: 14,
-    gap: 8,
-  },
-  logoutActionIcon: {
-    fontSize: 16,
-  },
-  logoutActionText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.dangerText,
+    color: '#DC2626',
   },
 
   // ----------------------------------------------------
@@ -1510,21 +1830,21 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   tabIconPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 16,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 52,
-    minHeight: 30,
+    minWidth: 42,
+    minHeight: 28,
   },
   tabIconPillActive: {
     backgroundColor: colors.tabActivePill,
   },
   tabLabel: {
-    fontSize: 11,
-    letterSpacing: -0.2,
+    fontSize: 10.5,
+    letterSpacing: -0.3,
   },
   tabLabelActive: {
     color: colors.tabActiveText,
