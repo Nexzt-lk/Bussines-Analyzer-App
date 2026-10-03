@@ -1,76 +1,48 @@
 import { supabase } from '@/lib/supabaseClient';
 import type { MobileUser } from '@/lib/types';
 
+/** Thrown while the database has locked a login after repeated failures. */
+export class LoginLockedError extends Error {
+  constructor() {
+    super('Too many failed sign-in attempts. Try again in 15 minutes.');
+    this.name = 'LoginLockedError';
+  }
+}
+
 // Every call here goes through SECURITY DEFINER Postgres functions (see
-// supabase/001_mobile_pin_auth.sql) — the PIN hash never leaves the
-// database, even though this app has no Supabase Auth session.
+// superbase/002_secure_mobile_login.sql). Passwords are verified inside the
+// database; the app never reads the users table or any password hash.
 export const authApi = {
   /**
-   * Authenticates staff member using email and password.
-   * Tries Postgres RPC `login_with_email` first; falls back to direct query
-   * on the users table if the RPC is not installed.
-   * Returns MobileUser on success, null on invalid credentials.
+   * Signs a staff member in with their email or name and password.
+   * Resolves to the user on success, null on wrong credentials.
+   * Rejects with LoginLockedError when locked out, or with the Supabase
+   * error on network/server problems.
    */
-  loginWithEmail: async (email: string, password: string): Promise<MobileUser | null> => {
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) {
+  loginWithEmail: async (login: string, password: string): Promise<MobileUser | null> => {
+    const trimmedLogin = login.trim();
+    if (!trimmedLogin || !password.trim()) {
       return null;
     }
 
-    // 1. Try PostgreSQL RPC function if present in the database
-    try {
-      const { data, error } = await supabase.rpc('login_with_email', {
-        p_email: trimmedEmail,
-        p_password: password,
-      });
-
-      if (!error && Array.isArray(data) && data.length > 0) {
-        return {
-          id: data[0].id,
-          name: data[0].name,
-          email: data[0].email,
-          role: data[0].role,
-        };
-      }
-    } catch {
-      // RPC not yet configured in database, continue to fallback below
-    }
-
-    // 2. Direct database query fallback
-    const isEmail = trimmedEmail.includes('@');
-    let userQuery = supabase
-      .from('users')
-      .select('id, name, email, role, password_hash, is_active')
-      .eq('is_active', true);
-
-    if (isEmail) {
-      userQuery = userQuery.ilike('email', trimmedEmail);
-    } else {
-      userQuery = userQuery.or(`email.ilike.${trimmedEmail},name.ilike.${trimmedEmail}`);
-    }
-
-    const { data: user, error } = await userQuery.maybeSingle();
+    const { data, error } = await supabase.rpc('login_with_email', {
+      p_email: trimmedLogin,
+      p_password: password,
+    });
 
     if (error) {
-      console.error('Login query error:', error);
+      if (String(error.message).includes('TOO_MANY_ATTEMPTS')) {
+        throw new LoginLockedError();
+      }
       throw error;
     }
 
-    if (!user) {
+    if (!Array.isArray(data) || data.length !== 1) {
       return null;
     }
 
-    // Check credentials against password_hash
-    if (user.password_hash === password) {
-      return {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-      };
-    }
-
-    return null;
+    const [row] = data;
+    return { id: row.id, name: row.name, email: row.email, role: row.role };
   },
 
   getUsers: async (): Promise<MobileUser[]> => {

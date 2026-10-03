@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Rect } from 'react-native-svg';
 import { useAuth } from './AuthContext';
+import { LoginLockedError } from './authApi';
 import { useBranch } from '../branches/BranchContext';
 
 // Color Palette defined in Design System
@@ -130,13 +131,13 @@ export default function LoginScreen() {
 
   const handleSubmit = async () => {
     const trimmed = identifier.trim();
-    if (!trimmed || !password || loading) {
+    if (!trimmed || !password.trim() || loading) {
       if (!trimmed) {
         setError('Please enter your email or username.');
         triggerShake();
         return;
       }
-      if (!password) {
+      if (!password.trim()) {
         setError('Please enter your password.');
         triggerShake();
         return;
@@ -157,15 +158,19 @@ export default function LoginScreen() {
         setError('Invalid credentials. Please verify and try again.');
         triggerShake();
       }
-    } catch {
-      setError('Could not connect to server. Check your network.');
+    } catch (err) {
+      setError(
+        err instanceof LoginLockedError
+          ? err.message
+          : 'Could not connect to server. Check your network.'
+      );
       triggerShake();
     } finally {
       setLoading(false);
     }
   };
 
-  const isFormValid = identifier.trim().length > 0 && password.length > 0;
+  const isFormValid = identifier.trim().length > 0 && password.trim().length > 0;
 
   return (
     <SafeAreaView style={styles.safeArea}>

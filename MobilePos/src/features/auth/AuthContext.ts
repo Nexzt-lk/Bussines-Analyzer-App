@@ -26,10 +26,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Restores the session on app launch — since there's no Supabase Auth
   // token to refresh, "logged in" simply means "a user is saved locally."
   useEffect(() => {
-    storage.getUser().then((user) => {
-      setCurrentUser(user);
-      setLoading(false);
-    });
+    storage
+      .getUser()
+      .then(setCurrentUser)
+      .catch(() => setCurrentUser(null))
+      .finally(() => setLoading(false));
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
