@@ -433,7 +433,6 @@ export default function DashboardScreen() {
           trendPositive={reportStats?.salesTrendPositive !== false}
           loading={loadingReport}
           variant="line"
-          amountLabel="TODAY'S SALES"
         />
 
         {/* Top Selling Products */}
