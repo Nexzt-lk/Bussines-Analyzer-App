@@ -13,11 +13,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LineChart, BarChart } from 'react-native-gifted-charts';
 import { colors } from '@/constants/colors';
+import BarDetailPanel, { formatCompactNumber, getNiceAxis } from '@/components/BarDetailPanel';
 import type { ChartPoint } from './salesApi';
 
 // Emerald gradient colors matching user design reference
 const BAR_GRADIENT_START = colors.chartGradientStart; // #32C468 (Vibrant emerald green top)
 const BAR_GRADIENT_END = colors.chartGradientEnd;     // #178440 (Deep forest green bottom)
+// Room for the value labels (0, 50K, 100K…) on the left of the bar chart.
+const Y_AXIS_WIDTH = 36;
 
 interface SalesOverviewCardProps {
   chartData: ChartPoint[];
@@ -72,10 +75,17 @@ export default function SalesOverviewCard({
     return Math.floor(availableWidth / (dataLength - 1));
   }, [chartContainerWidth, chartData.length]);
 
-  // Bar spacing calculation
+  // Tapped bar. Stored with the data it belongs to, so a new period/filter
+  // automatically clears the selection.
+  const [selection, setSelection] = useState<{ data: ChartPoint[]; index: number } | null>(null);
+  const selectedIndex = selection?.data === chartData ? selection.index : null;
+  const onBarPress = (_item: unknown, index: number) =>
+    setSelection(selectedIndex === index ? null : { data: chartData, index });
+
+  // Bar spacing calculation (leaves room for the y-axis labels)
   const { barSpacing, barInitialSpacing } = useMemo(() => {
     const dataCount = chartData.length || 7;
-    const availableWidth = Math.max(chartContainerWidth - 40, 240);
+    const availableWidth = Math.max(chartContainerWidth - 40 - Y_AXIS_WIDTH, 200);
     const totalBarsWidth = dataCount * barWidth;
     const remainingWidth = Math.max(availableWidth - totalBarsWidth, 20);
 
@@ -87,6 +97,9 @@ export default function SalesOverviewCard({
       barInitialSpacing: initSpacing,
     };
   }, [chartContainerWidth, barWidth, chartData.length]);
+
+  // Round-number y-axis scaled to the tallest bar (busy season or quiet day).
+  const barAxis = useMemo(() => getNiceAxis(chartData.map((p) => p.value)), [chartData]);
 
   // Bar chart data with rounded top pill cap matching user design
   const barData = useMemo(() => {
@@ -223,7 +236,11 @@ export default function SalesOverviewCard({
                     />
                   );
                 }}
-                hideYAxisText
+                maxValue={barAxis.maxValue}
+                stepValue={barAxis.stepValue}
+                yAxisLabelWidth={Y_AXIS_WIDTH}
+                yAxisTextStyle={styles.yAxisLabel}
+                formatYLabel={formatCompactNumber}
                 yAxisThickness={0}
                 xAxisThickness={0}
                 rulesType="dashed"
@@ -234,21 +251,17 @@ export default function SalesOverviewCard({
                 xAxisLabelTextStyle={styles.xAxisLabel}
                 isAnimated
                 animationDuration={500}
-                renderTooltip={(item: any) => {
-                  return (
-                    <View style={styles.statTooltipCard}>
-                      <Text style={styles.statTooltipTitle}>{item.label}</Text>
-                      <Text style={styles.statTooltipIncome}>
-                        Income : {formatRs(item.value)}
-                      </Text>
-                    </View>
-                  );
-                }}
-                autoCenterTooltip
-                leftShiftForLastIndexTooltip={24}
+                onPress={onBarPress}
+                highlightEnabled={selectedIndex !== null}
+                highlightedBarIndex={selectedIndex ?? -1}
+                lowlightOpacity={0.35}
               />
             )}
           </View>
+
+          {variant === 'bar' && (
+            <BarDetailPanel points={chartData} selectedIndex={selectedIndex} valueLabel="Income" />
+          )}
         </>
       )}
     </View>
@@ -365,6 +378,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  yAxisLabel: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '500',
   },
   statTooltipCard: {
     backgroundColor: '#FFFFFF',

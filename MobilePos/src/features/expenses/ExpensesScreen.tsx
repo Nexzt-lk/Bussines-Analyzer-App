@@ -20,6 +20,7 @@ import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
 import { toLocalYmd } from '@/lib/reporting';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
+import BarDetailPanel, { formatCompactNumber, getNiceAxis } from '@/components/BarDetailPanel';
 import {
   expensesApi,
   ExpenseFilterType,
@@ -63,6 +64,9 @@ const getCategoryIcon = (cat?: string): { name: any; bg: string; color: string }
   }
   return { name: 'receipt-outline', bg: '#F1F5F9', color: '#64748B' };
 };
+
+// Room for the value labels (0, 50K, 100K…) on the left of the bar chart.
+const Y_AXIS_WIDTH = 36;
 
 export default function ExpensesScreen() {
   const { currentBranch } = useBranch();
@@ -214,8 +218,18 @@ export default function ExpensesScreen() {
     return expenses.filter((e) => e.category === selectedCategoryFilter);
   }, [expenses, selectedCategoryFilter]);
 
+  // Tapped bar. Stored with the data it belongs to, so a new period/filter
+  // automatically clears the selection.
+  const chartPoints = reportData?.chartData;
+  const [barSelection, setBarSelection] = useState<{ data: typeof chartPoints; index: number } | null>(null);
+  const selectedBarIndex = chartPoints && barSelection?.data === chartPoints ? barSelection.index : null;
+  const onBarPress = (_item: unknown, index: number) =>
+    setBarSelection(selectedBarIndex === index ? null : { data: chartPoints, index });
+
   // Dynamic Chart calculations
   const rawChartData = reportData?.chartData ?? [];
+  // Round-number y-axis scaled to the tallest bar.
+  const barAxis = getNiceAxis(rawChartData.map((p) => p.value));
   const chartLength = Math.max(rawChartData.length, 1);
   const chartSpacing = useMemo(() => {
     const available = chartContainerWidth - 36;
@@ -230,7 +244,7 @@ export default function ExpensesScreen() {
 
   const barSpacing = useMemo(() => {
     const totalBarsWidth = barWidth * chartLength;
-    const remaining = chartContainerWidth - 44 - totalBarsWidth;
+    const remaining = chartContainerWidth - 44 - Y_AXIS_WIDTH - totalBarsWidth;
     return Math.max(14, Math.floor(remaining / (chartLength + 1)));
   }, [chartContainerWidth, chartLength, barWidth]);
 
@@ -389,7 +403,11 @@ export default function ExpensesScreen() {
                       />
                     );
                   }}
-                  hideYAxisText
+                  maxValue={barAxis.maxValue}
+                  stepValue={barAxis.stepValue}
+                  yAxisLabelWidth={Y_AXIS_WIDTH}
+                  yAxisTextStyle={styles.yAxisLabel}
+                  formatYLabel={formatCompactNumber}
                   yAxisThickness={0}
                   xAxisThickness={0}
                   rulesType="dashed"
@@ -400,18 +418,23 @@ export default function ExpensesScreen() {
                   xAxisLabelTextStyle={styles.xAxisLabel}
                   isAnimated
                   animationDuration={400}
-                  renderTooltip={(item: any) => (
-                    <View style={styles.statTooltipCard}>
-                      <Text style={styles.statTooltipTitle}>{item.label}</Text>
-                      <Text style={styles.statTooltipIncome}>
-                        Cost: {formatRs(item.value)}
-                      </Text>
-                    </View>
-                  )}
-                  autoCenterTooltip
+                  onPress={onBarPress}
+                  highlightEnabled={selectedBarIndex !== null}
+                  highlightedBarIndex={selectedBarIndex ?? -1}
+                  lowlightOpacity={0.35}
                 />
               )}
             </View>
+
+            {activeFilter !== 'today' && (
+              <BarDetailPanel
+                points={rawChartData}
+                selectedIndex={selectedBarIndex}
+                valueLabel="Cost"
+                lowerIsBetter
+                accentColor="#D97706"
+              />
+            )}
           </>
         )}
       </View>
@@ -748,6 +771,11 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 11,
     fontWeight: '600',
+  },
+  yAxisLabel: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '500',
   },
   statTooltipCard: {
     backgroundColor: '#0F172A',
