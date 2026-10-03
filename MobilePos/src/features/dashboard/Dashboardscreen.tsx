@@ -981,7 +981,7 @@ export default function DashboardScreen() {
             onPress={() => setActiveTab('home')}
             activeOpacity={0.8}
           >
-            <View style={[styles.tabIconPill, activeTab === 'home' && styles.tabIconPillActive]}>
+            <View style={styles.tabIconPill}>
               <Ionicons
                 name={activeTab === 'home' ? 'home' : 'home-outline'}
                 size={21}
@@ -1004,7 +1004,7 @@ export default function DashboardScreen() {
             onPress={() => setActiveTab('sales')}
             activeOpacity={0.8}
           >
-            <View style={[styles.tabIconPill, activeTab === 'sales' && styles.tabIconPillActive]}>
+            <View style={styles.tabIconPill}>
               <Ionicons
                 name={activeTab === 'sales' ? 'trending-up' : 'trending-up-outline'}
                 size={21}
@@ -1027,7 +1027,7 @@ export default function DashboardScreen() {
             onPress={() => setActiveTab('expenses')}
             activeOpacity={0.8}
           >
-            <View style={[styles.tabIconPill, activeTab === 'expenses' && styles.tabIconPillActive]}>
+            <View style={styles.tabIconPill}>
               <Ionicons
                 name={activeTab === 'expenses' ? 'receipt' : 'receipt-outline'}
                 size={20}
@@ -1050,7 +1050,7 @@ export default function DashboardScreen() {
             onPress={() => setActiveTab('stock')}
             activeOpacity={0.8}
           >
-            <View style={[styles.tabIconPill, activeTab === 'stock' && styles.tabIconPillActive]}>
+            <View style={styles.tabIconPill}>
               <Ionicons
                 name={activeTab === 'stock' ? 'cube' : 'cube-outline'}
                 size={21}
@@ -1073,7 +1073,7 @@ export default function DashboardScreen() {
             onPress={() => setActiveTab('reports')}
             activeOpacity={0.8}
           >
-            <View style={[styles.tabIconPill, activeTab === 'reports' && styles.tabIconPillActive]}>
+            <View style={styles.tabIconPill}>
               <Ionicons
                 name={activeTab === 'reports' ? 'stats-chart' : 'stats-chart-outline'}
                 size={21}
@@ -1851,9 +1851,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 42,
     minHeight: 28,
-  },
-  tabIconPillActive: {
-    backgroundColor: colors.tabActivePill,
   },
   tabLabel: {
     fontSize: 10.5,
