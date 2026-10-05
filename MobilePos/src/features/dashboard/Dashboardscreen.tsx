@@ -12,6 +12,7 @@ import {
   RefreshControl,
   StatusBar as RNStatusBar,
   Switch,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -296,6 +297,16 @@ export default function DashboardScreen() {
       >
         <View style={styles.headerTopRow}>
           <View style={styles.headerDateAndGreeting}>
+            <View style={styles.headerBrandBadge}>
+              <View style={styles.headerLogoCard}>
+                <Image
+                  source={require('@/assets/images/bizznet-logo.png')}
+                  style={styles.headerMiniLogo}
+                  resizeMode="contain"
+                />
+              </View>
+              <Text style={styles.headerBrandTitle}>BizzNet</Text>
+            </View>
             <Text style={styles.headerDateBadge}>{formattedDate}</Text>
             <Text style={styles.headerGreetingText}>
               {greeting}, {userName}
@@ -842,7 +853,7 @@ export default function DashboardScreen() {
   // ==========================================
   const renderProfileTab = () => {
     const singleInitial = currentUser?.name ? currentUser.name.trim()[0].toUpperCase() : 'N';
-    const userEmail = currentUser?.email || 'owner@sugarcrumb.lk';
+    const userEmail = currentUser?.email || 'owner@bizznet.lk';
 
     return (
       <ScrollView
@@ -1062,6 +1073,20 @@ export default function DashboardScreen() {
           <Ionicons name="log-out-outline" size={18} color="#DC2626" />
           <Text style={styles.profileLogoutButtonText}>Log Out of Terminal</Text>
         </TouchableOpacity>
+
+        {/* 5. Brand Footer */}
+        <View style={styles.profileBrandFooter}>
+          <View style={styles.profileBrandLogoCard}>
+            <Image
+              source={require('@/assets/images/bizznet-logo.png')}
+              style={styles.profileBrandLogo}
+              resizeMode="contain"
+            />
+          </View>
+          <Text style={styles.profileBrandName}>BizzNet</Text>
+          <Text style={styles.profileBrandSubtitle}>Smart Business Analyzer & POS Terminal</Text>
+          <Text style={styles.profileBrandVersion}>v1.0.0 • Powered by Nexzt Solution</Text>
+        </View>
       </ScrollView>
     );
   };
@@ -1305,6 +1330,37 @@ const styles = StyleSheet.create({
   headerDateAndGreeting: {
     flex: 1,
     paddingRight: 16,
+  },
+  headerBrandBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  headerLogoCard: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+    overflow: 'hidden',
+  },
+  headerMiniLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+  },
+  headerBrandTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
   headerDateBadge: {
     fontSize: 12,
@@ -2111,5 +2167,57 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 4,
+  },
+
+  // ----------------------------------------------------
+  // Profile Brand Footer
+  // ----------------------------------------------------
+  profileBrandFooter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  profileBrandLogoCard: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  profileBrandLogo: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+  },
+  profileBrandName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    letterSpacing: -0.2,
+  },
+  profileBrandSubtitle: {
+    fontSize: 12.5,
+    color: colors.textSecondary,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  profileBrandVersion: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 6,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });

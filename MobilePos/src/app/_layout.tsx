@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import { NotificationProvider } from '@/features/notifications/NotificationConte
 import { NotificationBanner } from '@/features/notifications/NotificationBanner';
 import { NotificationModal } from '@/features/notifications/NotificationModal';
 import { colors } from '@/constants/colors';
+import AppLoadingScreen from '@/components/AppLoadingScreen';
 
 export default function RootLayout() {
   return (
@@ -37,7 +38,17 @@ function RootNavigation() {
   const segments = useSegments();
   const router = useRouter();
 
-  const loading = authLoading || branchLoading;
+  // Show the branded loading screen for 2 seconds on app launch
+  const [splashFinished, setSplashFinished] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSplashFinished(true);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const loading = !splashFinished || authLoading || branchLoading;
 
   useEffect(() => {
     if (loading) return;
@@ -56,11 +67,7 @@ function RootNavigation() {
   }, [currentUser, currentBranch, loading, segments, router]);
 
   if (loading) {
-    return (
-      <View className="flex-1 justify-center items-center bg-white">
-        <ActivityIndicator size="large" />
-      </View>
-    );
+    return <AppLoadingScreen />;
   }
 
   return (

@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { branchesApi } from './branchApi';
 import { useBranch } from './BranchContext';
 import { colors } from '@/constants/colors';
+import AppLoadingScreen from '@/components/AppLoadingScreen';
 import type { Branch } from '@/lib/types';
 
 export default function BranchSelectorScreen() {
@@ -38,12 +39,7 @@ export default function BranchSelectorScreen() {
   };
 
   if (loading) {
-    return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading available branches...</Text>
-      </View>
-    );
+    return <AppLoadingScreen message="Loading available branches..." />;
   }
 
   return (

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { isRunningInExpoGo } from 'expo';
 import { supabase } from '@/lib/supabaseClient';
 import { reportsApi } from '../reports/reportsApi';
 import { notificationStorage } from './notificationStorage';
@@ -10,15 +10,44 @@ import type {
   NotificationSettings,
 } from './notificationTypes';
 
-// Configure how notifications are displayed when the app is foregrounded
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+/**
+ * Safe lazy loader for expo-notifications.
+ * In Expo Go on Android (SDK 53+), expo-notifications throws an uncaught error at import
+ * time because remote push was removed from Expo Go.
+ * This helper ensures that when running inside Expo Go or on Web, it safely bypasses
+ * expo-notifications so the entire application, in-app notifications, and layout
+ * render cleanly without crashing.
+ * When running in a Development Build or Standalone APK, native OS notifications load normally.
+ */
+let _cachedNotifications: typeof import('expo-notifications') | null = null;
+let _triedLoadingNotifications = false;
+
+function getNotifications(): typeof import('expo-notifications') | null {
+  if (_triedLoadingNotifications) return _cachedNotifications;
+  _triedLoadingNotifications = true;
+
+  // In Expo Go or Web, do not load expo-notifications to prevent runtime crashes
+  if (Platform.OS === 'web' || isRunningInExpoGo()) {
+    return null;
+  }
+
+  try {
+    const mod = require('expo-notifications');
+    mod.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+      }),
+    });
+    _cachedNotifications = mod;
+    return _cachedNotifications;
+  } catch (err) {
+    console.warn('[notificationService] Native notifications not available:', err);
+    return null;
+  }
+}
 
 // In-memory cache for product information
 const productCache = new Map<string, { name: string; itemCode: string; unit: string }>();
@@ -29,59 +58,62 @@ export const notificationService = {
    */
   init: async (): Promise<boolean> => {
     try {
-      if (Platform.OS !== 'web') {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-
-        if (Platform.OS === 'android') {
-          // Channel for Orders
-          await Notifications.setNotificationChannelAsync('orders', {
-            name: 'Orders',
-            description: 'Notifications for every order placed or completed',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: '#0D7F41',
-            sound: 'default',
-          });
-
-          // Channel for Low Stock Warnings
-          await Notifications.setNotificationChannelAsync('low_stock', {
-            name: 'Low Stock Warnings',
-            description: 'Warnings when products hit low stock or go out of stock',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 500, 200, 500],
-            lightColor: '#DC2626',
-            sound: 'default',
-          });
-
-          // Channel for Stock Updates
-          await Notifications.setNotificationChannelAsync('stock_updates', {
-            name: 'Stock Updates',
-            description: 'Notifications for general stock adjustments',
-            importance: Notifications.AndroidImportance.HIGH,
-            vibrationPattern: [0, 200, 200, 200],
-            lightColor: '#2563EB',
-            sound: 'default',
-          });
-
-          // Channel for 6:00 PM Daily Sales Summary
-          await Notifications.setNotificationChannelAsync('daily_summary', {
-            name: 'Daily Sales Summary',
-            description: 'Daily closing sales recap after 6:00 PM',
-            importance: Notifications.AndroidImportance.HIGH,
-            lightColor: '#10B981',
-            sound: 'default',
-          });
-        }
-
-        return finalStatus === 'granted';
+      const Notifications = getNotifications();
+      if (!Notifications) {
+        // Expo Go or unsupported platform: in-app toast & center still active
+        return true;
       }
-      return true;
+
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (Platform.OS === 'android') {
+        // Channel for Orders
+        await Notifications.setNotificationChannelAsync('orders', {
+          name: 'Orders',
+          description: 'Notifications for every order placed or completed',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#0D7F41',
+          sound: 'default',
+        });
+
+        // Channel for Low Stock Warnings
+        await Notifications.setNotificationChannelAsync('low_stock', {
+          name: 'Low Stock Warnings',
+          description: 'Warnings when products hit low stock or go out of stock',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 500, 200, 500],
+          lightColor: '#DC2626',
+          sound: 'default',
+        });
+
+        // Channel for Stock Updates
+        await Notifications.setNotificationChannelAsync('stock_updates', {
+          name: 'Stock Updates',
+          description: 'Notifications for general stock adjustments',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 200, 200, 200],
+          lightColor: '#2563EB',
+          sound: 'default',
+        });
+
+        // Channel for 6:00 PM Daily Sales Summary
+        await Notifications.setNotificationChannelAsync('daily_summary', {
+          name: 'Daily Sales Summary',
+          description: 'Daily closing sales recap after 6:00 PM',
+          importance: Notifications.AndroidImportance.HIGH,
+          lightColor: '#10B981',
+          sound: 'default',
+        });
+      }
+
+      return finalStatus === 'granted';
     } catch (e) {
       console.warn('Failed to initialize notifications:', e);
       return false;
@@ -93,7 +125,8 @@ export const notificationService = {
    */
   scheduleDaily6PMSummaryTrigger: async (): Promise<void> => {
     try {
-      if (Platform.OS === 'web') return;
+      const Notifications = getNotifications();
+      if (!Notifications) return;
 
       // Cancel existing summary notifications to avoid duplicates
       const scheduled = await Notifications.getAllScheduledNotificationsAsync();
@@ -151,7 +184,8 @@ export const notificationService = {
 
     // Present OS-level native notification
     try {
-      if (Platform.OS !== 'web') {
+      const Notifications = getNotifications();
+      if (Notifications) {
         await Notifications.scheduleNotificationAsync({
           content: {
             title: params.title,

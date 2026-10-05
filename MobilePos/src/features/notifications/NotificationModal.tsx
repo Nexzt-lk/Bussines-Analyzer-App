@@ -6,9 +6,9 @@ import {
   View,
   TouchableOpacity,
   FlatList,
-  SafeAreaView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNotifications } from './NotificationContext';
 import { colors } from '@/constants/colors';
@@ -133,7 +133,7 @@ export const NotificationModal: React.FC = () => {
       presentationStyle="pageSheet"
       onRequestClose={closeModal}
     >
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
         {/* Top Header */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
