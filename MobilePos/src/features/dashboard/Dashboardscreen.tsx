@@ -33,6 +33,7 @@ import { reportsApi, type ReportResponse } from '../reports/reportsApi';
 import SalesOverviewCard from '../sales/SalesOverviewCard';
 import TopProductsCard from '../reports/TopProductsCard';
 import { DAILY_VIEW_FIRST_STEP } from '@/components/BarDetailPanel';
+import { useNotifications } from '../notifications/NotificationContext';
 
 type ActiveTab = 'home' | 'sales' | 'expenses' | 'stock' | 'reports' | 'profile';
 
@@ -40,6 +41,13 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { currentBranch, selectBranch, clearBranch } = useBranch();
   const { currentUser, logout } = useAuth();
+  const {
+    settings: notificationSettings,
+    updateSettings: updateNotificationSettings,
+    unreadCount,
+    openModal: openNotificationModal,
+    sendTestNotification,
+  } = useNotifications();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
 
@@ -47,10 +55,6 @@ export default function DashboardScreen() {
   const [allBranches, setAllBranches] = useState<Branch[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(true);
   const [switchingBranchId, setSwitchingBranchId] = useState<string | null>(null);
-
-  // Notification settings for Profile tab
-  const [lowStockAlerts, setLowStockAlerts] = useState(true);
-  const [dailyClosingAlerts, setDailyClosingAlerts] = useState(true);
 
   // Inventory / Stock data
   const [inventoryItems, setInventoryItems] = useState<InventoryRow[]>([]);
@@ -297,13 +301,32 @@ export default function DashboardScreen() {
               {greeting}, {userName}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.headerProfileSquircle}
-            onPress={() => setActiveTab('profile')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.headerProfileInitials}>{userInitials}</Text>
-          </TouchableOpacity>
+
+          <View style={styles.headerTopRightRow}>
+            {/* Real-time Notification Bell */}
+            <TouchableOpacity
+              style={styles.headerNotificationButton}
+              onPress={openNotificationModal}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="notifications-outline" size={21} color="#FFFFFF" />
+              {unreadCount > 0 && (
+                <View style={styles.headerBadge}>
+                  <Text style={styles.headerBadgeText}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.headerProfileSquircle}
+              onPress={() => setActiveTab('profile')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.headerProfileInitials}>{userInitials}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Branch Pill (matching reference image) */}
@@ -913,18 +936,56 @@ export default function DashboardScreen() {
         {/* 3. Notifications Section */}
         <View style={styles.profileSectionHeader}>
           <Text style={styles.profileSectionTitle}>Notifications</Text>
+          <TouchableOpacity
+            style={styles.openHistoryButton}
+            onPress={openNotificationModal}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="notifications" size={13} color={colors.primary} />
+            <Text style={styles.openHistoryButtonText}>View History ({unreadCount})</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.profileCardGroup}>
-          {/* Low Stock Alerts */}
+          {/* New Order Alerts */}
           <View style={[styles.notificationRow, styles.shopRowDivider]}>
             <View style={styles.notificationInfo}>
-              <Text style={styles.notificationTitle}>Low stock alerts</Text>
-              <Text style={styles.notificationSubtitle}>Push when an item hits reorder level</Text>
+              <Text style={styles.notificationTitle}>New Order Alerts</Text>
+              <Text style={styles.notificationSubtitle}>Notification for every sale made</Text>
             </View>
             <Switch
-              value={lowStockAlerts}
-              onValueChange={setLowStockAlerts}
+              value={notificationSettings.orderAlerts}
+              onValueChange={(val) => updateNotificationSettings({ orderAlerts: val })}
+              trackColor={{ false: '#E2E8F0', true: colors.primary }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#E2E8F0"
+            />
+          </View>
+
+          {/* Stock Update Alerts */}
+          <View style={[styles.notificationRow, styles.shopRowDivider]}>
+            <View style={styles.notificationInfo}>
+              <Text style={styles.notificationTitle}>Stock Update Alerts</Text>
+              <Text style={styles.notificationSubtitle}>Notification for inventory stock changes</Text>
+            </View>
+            <Switch
+              value={notificationSettings.stockUpdateAlerts}
+              onValueChange={(val) => updateNotificationSettings({ stockUpdateAlerts: val })}
+              trackColor={{ false: '#E2E8F0', true: colors.primary }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#E2E8F0"
+            />
+          </View>
+
+          {/* Low Stock Warnings */}
+          <View style={[styles.notificationRow, styles.shopRowDivider]}>
+            <View style={styles.notificationInfo}>
+              <Text style={styles.notificationTitle}>Low Stock Warnings</Text>
+              <Text style={styles.notificationSubtitle}>Warning alert when item hits reorder level or 0</Text>
+            </View>
+            <Switch
+              value={notificationSettings.lowStockAlerts}
+              onValueChange={(val) => updateNotificationSettings({ lowStockAlerts: val })}
               trackColor={{ false: '#E2E8F0', true: colors.primary }}
               thumbColor="#FFFFFF"
               ios_backgroundColor="#E2E8F0"
@@ -934,16 +995,61 @@ export default function DashboardScreen() {
           {/* Daily Closing Summary */}
           <View style={styles.notificationRow}>
             <View style={styles.notificationInfo}>
-              <Text style={styles.notificationTitle}>Daily closing summary</Text>
-              <Text style={styles.notificationSubtitle}>Income recap at 9:00 pm</Text>
+              <Text style={styles.notificationTitle}>Daily Sales Summary</Text>
+              <Text style={styles.notificationSubtitle}>Income recap sent every evening after 6:00 pm</Text>
             </View>
             <Switch
-              value={dailyClosingAlerts}
-              onValueChange={setDailyClosingAlerts}
+              value={notificationSettings.dailyClosingAlerts}
+              onValueChange={(val) => updateNotificationSettings({ dailyClosingAlerts: val })}
               trackColor={{ false: '#E2E8F0', true: colors.primary }}
               thumbColor="#FFFFFF"
               ios_backgroundColor="#E2E8F0"
             />
+          </View>
+        </View>
+
+        {/* Quick Test Actions Card */}
+        <View style={styles.testActionsCard}>
+          <Text style={styles.testActionsTitle}>Test Notification Alerts</Text>
+          <Text style={styles.testActionsSubtitle}>
+            Tap below to trigger instant preview notifications for testing:
+          </Text>
+          <View style={styles.testGrid}>
+            <TouchableOpacity
+              style={styles.testGridButton}
+              onPress={() => sendTestNotification('order')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="bag-check" size={15} color="#059669" />
+              <Text style={styles.testGridButtonText}>Test Order</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testGridButton}
+              onPress={() => sendTestNotification('stock_update')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="cube" size={15} color="#2563EB" />
+              <Text style={styles.testGridButtonText}>Test Stock</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testGridButton}
+              onPress={() => sendTestNotification('low_stock')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="warning" size={15} color="#DC2626" />
+              <Text style={styles.testGridButtonText}>Test Low Stock</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testGridButton}
+              onPress={() => sendTestNotification('daily_summary')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="stats-chart" size={15} color="#7C3AED" />
+              <Text style={styles.testGridButtonText}>Test 6 PM Recap</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -1803,6 +1909,108 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#71717A',
     marginTop: 2,
+  },
+  headerTopRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  headerNotificationButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  headerBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  headerBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  openHistoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  openHistoryButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  testActionsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  testActionsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  testActionsSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    marginBottom: 12,
+    lineHeight: 17,
+  },
+  testGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  testGridButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  testGridButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#334155',
   },
   profileLogoutButtonModern: {
     flexDirection: 'row',

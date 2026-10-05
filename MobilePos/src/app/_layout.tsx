@@ -6,6 +6,9 @@ import '../global.css';
 
 import { AuthProvider, useAuth } from '@/features/auth/AuthContext';
 import { BranchProvider, useBranch } from '@/features/branches/BranchContext';
+import { NotificationProvider } from '@/features/notifications/NotificationContext';
+import { NotificationBanner } from '@/features/notifications/NotificationBanner';
+import { NotificationModal } from '@/features/notifications/NotificationModal';
 import { colors } from '@/constants/colors';
 
 export default function RootLayout() {
@@ -13,7 +16,11 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <AuthProvider>
         <BranchProvider>
-          <RootNavigation />
+          <NotificationProvider>
+            <RootNavigation />
+            <NotificationBanner />
+            <NotificationModal />
+          </NotificationProvider>
         </BranchProvider>
       </AuthProvider>
     </SafeAreaProvider>
