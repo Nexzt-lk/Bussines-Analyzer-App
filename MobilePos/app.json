@@ -1,31 +1,24 @@
 {
   "expo": {
-    "name": "BizzNet",
+    "name": "MobilePos",
     "slug": "MobilePos",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "bizznet",
+    "scheme": "mobilepos",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#FFFFFF",
+        "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.nexztpos.mobilepos",
-      "versionCode": 1,
-      "permissions": [
-        "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.VIBRATE",
-        "android.permission.INTERNET",
-        "android.permission.POST_NOTIFICATIONS"
-      ]
+      "package": "com.anonymous.MobilePos"
     },
     "web": {
       "output": "static",
@@ -36,9 +29,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#FFFFFF",
+          "backgroundColor": "#208AEF",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200
+          "imageWidth": 76
         }
       ],
       [
@@ -52,13 +45,6 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    },
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "30ac8f32-8238-41e2-8352-2620e765c02b"
-      }
-    },
-    "owner": "sadeepanexzt"
+    }
   }
 }

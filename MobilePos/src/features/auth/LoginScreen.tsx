@@ -10,7 +10,6 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Platform,
-  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -191,21 +190,17 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.contentCard}>
-            {/* Top Brand BizzNet Logo in Squircle Card */}
+            {/* Top Brand Cake Logo in Squircle Card */}
             <View style={styles.logoSquircle}>
-              <Image
-                source={require('@/assets/images/icon.png')}
-                style={styles.logoImage}
-                resizeMode="contain"
-              />
+              <CakeLogoIcon size={32} color="#FFFFFF" />
             </View>
 
             {/* Overline Brand Tag */}
-            <Text style={styles.brandOverline}>BIZZNET</Text>
+            <Text style={styles.brandOverline}>SWEET DELIGHT</Text>
 
             {/* Main Title Heading */}
             <Text style={styles.titleHeading}>
-              {'Welcome to \nBizzNet Analyzer'}
+              {'Welcome \nBusiness Analyzer'}
             </Text>
 
             {/* Subtitle */}
@@ -417,28 +412,20 @@ const styles = StyleSheet.create({
     paddingTop: 24,
   },
 
-  // BizzNet Logo Squircle
+  // Cake Logo Squircle
   logoSquircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    backgroundColor: BRAND.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-    shadowColor: '#16A34A',
+    marginBottom: 26,
+    shadowColor: BRAND.primary,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.28,
     shadowRadius: 14,
     elevation: 6,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-  logoImage: {
-    width: 58,
-    height: 58,
-    borderRadius: 14,
   },
 
   // Typography

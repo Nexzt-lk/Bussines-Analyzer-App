@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { View, StyleSheet } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import '../global.css';
 
@@ -9,7 +9,6 @@ import { BranchProvider, useBranch } from '@/features/branches/BranchContext';
 import { NotificationProvider } from '@/features/notifications/NotificationContext';
 import { NotificationBanner } from '@/features/notifications/NotificationBanner';
 import { NotificationModal } from '@/features/notifications/NotificationModal';
-import LoadingScreen from '@/components/LoadingScreen';
 import { colors } from '@/constants/colors';
 
 export default function RootLayout() {
@@ -56,25 +55,30 @@ function RootNavigation() {
     }
   }, [currentUser, currentBranch, loading, segments, router]);
 
+  if (loading) {
+    return (
+      <View className="flex-1 justify-center items-center bg-white">
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
+
   return (
-    <View style={{ flex: 1 }}>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.background },
-        }}
-      >
-        <Stack.Screen name="login" options={{ headerShown: false }} />
-        <Stack.Screen name="select-branch" options={{ headerShown: false }} />
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="inventory" options={{ title: 'Inventory', headerShown: true }} />
-        <Stack.Screen name="sales" options={{ title: 'Sales', headerShown: false }} />
-      </Stack>
-      {loading && (
-        <View style={StyleSheet.absoluteFill}>
-          <LoadingScreen />
-        </View>
-      )}
-    </View>
+    <Stack
+      screenOptions={{
+        headerShown: true,
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.textPrimary,
+        headerTitleStyle: { fontWeight: '700', color: colors.textPrimary, fontSize: 18 },
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Screen name="select-branch" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="inventory" options={{ title: 'Inventory' }} />
+      <Stack.Screen name="sales" options={{ title: 'Sales', headerShown: false }} />
+    </Stack>
   );
 }
