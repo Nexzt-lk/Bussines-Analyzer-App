@@ -9,6 +9,7 @@ import { BranchProvider, useBranch } from '@/features/branches/BranchContext';
 import { NotificationProvider } from '@/features/notifications/NotificationContext';
 import { NotificationBanner } from '@/features/notifications/NotificationBanner';
 import { NotificationModal } from '@/features/notifications/NotificationModal';
+import LoadingScreen from '@/components/LoadingScreen';
 import { colors } from '@/constants/colors';
 
 export default function RootLayout() {
@@ -56,11 +57,7 @@ function RootNavigation() {
   }, [currentUser, currentBranch, loading, segments, router]);
 
   if (loading) {
-    return (
-      <View className="flex-1 justify-center items-center bg-white">
-        <ActivityIndicator size="large" />
-      </View>
-    );
+    return <LoadingScreen />;
   }
 
   return (
