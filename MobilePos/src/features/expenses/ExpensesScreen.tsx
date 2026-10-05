@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { LineChart, BarChart } from 'react-native-gifted-charts';
 import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import { toLocalYmd } from '@/lib/reporting';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import BarDetailPanel, { formatCompactNumber, getNiceAxis } from '@/components/BarDetailPanel';
@@ -649,11 +650,12 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: colors.textPrimary,
   },
   headerSubtitle: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: colors.textSecondary,
     marginTop: 2,
   },
@@ -682,12 +684,12 @@ const styles = StyleSheet.create({
   },
   filterText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.medium,
     color: '#71717A',
   },
   filterTextActive: {
     color: colors.textPrimary,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
   },
   customBadgeRow: {
     flexDirection: 'row',
@@ -708,12 +710,12 @@ const styles = StyleSheet.create({
   },
   customBadgeText: {
     fontSize: 12.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textPrimary,
   },
   customBadgeAction: {
     fontSize: 12.5,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.primary,
   },
   chartCard: {
@@ -737,13 +739,13 @@ const styles = StyleSheet.create({
   },
   expensesLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.textMuted,
     letterSpacing: 0.6,
   },
   expensesAmount: {
     fontSize: 26,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: colors.textPrimary,
     marginTop: 2,
   },
@@ -758,7 +760,7 @@ const styles = StyleSheet.create({
   },
   trendText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#D97706',
   },
   chartWrapper: {
@@ -770,12 +772,12 @@ const styles = StyleSheet.create({
   xAxisLabel: {
     color: colors.textMuted,
     fontSize: 11,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
   },
   yAxisLabel: {
     color: '#94A3B8',
     fontSize: 10,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   statTooltipCard: {
     backgroundColor: '#0F172A',
@@ -786,12 +788,12 @@ const styles = StyleSheet.create({
   statTooltipTitle: {
     color: '#94A3B8',
     fontSize: 10,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
   },
   statTooltipIncome: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   categoryFilterRow: {
     marginBottom: 14,
@@ -811,12 +813,12 @@ const styles = StyleSheet.create({
   },
   categoryPillText: {
     fontSize: 12.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textSecondary,
   },
   categoryPillTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -827,12 +829,12 @@ const styles = StyleSheet.create({
   },
   sectionHeading: {
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   sectionCount: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textMuted,
   },
   expensesList: {
@@ -872,11 +874,12 @@ const styles = StyleSheet.create({
   },
   expenseTitle: {
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   expenseSubtitle: {
     fontSize: 11.5,
+    fontFamily: fonts.regular,
     color: colors.textSecondary,
     marginTop: 2,
   },
@@ -887,7 +890,7 @@ const styles = StyleSheet.create({
   },
   expenseAmount: {
     fontSize: 14.5,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   emptyCard: {
@@ -904,7 +907,7 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.textSecondary,
     fontSize: 13,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   loadingContainer: {
     paddingVertical: 36,
@@ -913,6 +916,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 13,
+    fontFamily: fonts.medium,
     color: colors.textMuted,
   },
   modalOverlay: {
@@ -945,11 +949,12 @@ const styles = StyleSheet.create({
   },
   modalExpenseTitle: {
     fontSize: 17,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   modalExpenseTime: {
     fontSize: 12,
+    fontFamily: fonts.regular,
     color: colors.textSecondary,
     marginTop: 2,
   },
@@ -972,7 +977,7 @@ const styles = StyleSheet.create({
   },
   categoryBadgeText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.primaryText,
   },
   modalDetailCard: {
@@ -983,13 +988,13 @@ const styles = StyleSheet.create({
   },
   modalDetailLabel: {
     fontSize: 10,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: colors.textMuted,
     letterSpacing: 0.5,
   },
   modalDetailTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
     marginTop: 2,
   },
@@ -1006,12 +1011,12 @@ const styles = StyleSheet.create({
   },
   modalTotalLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.primaryText,
   },
   modalTotalAmount: {
     fontSize: 19,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: colors.primaryText,
   },
   closeDoneBtn: {
@@ -1024,11 +1029,11 @@ const styles = StyleSheet.create({
   closeDoneBtnText: {
     color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   inputLabel: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.textSecondary,
     marginTop: 10,
     marginBottom: 6,
@@ -1041,6 +1046,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     fontSize: 14,
+    fontFamily: fonts.medium,
     color: colors.textPrimary,
     marginBottom: 6,
   },
@@ -1055,6 +1061,6 @@ const styles = StyleSheet.create({
   submitFilterBtnText: {
     color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
 });

@@ -20,6 +20,7 @@ import { useAuth } from './AuthContext';
 import { LoginLockedError } from './authApi';
 import { useBranch } from '../branches/BranchContext';
 import { storage } from '@/lib/storage';
+import { fonts } from '@/constants/fonts';
 
 // Color Palette defined in Design System
 const BRAND = {
@@ -392,7 +393,7 @@ const styles = StyleSheet.create({
   // Typography
   brandOverline: {
     fontSize: 12,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: BRAND.primary,
     letterSpacing: 1.4,
     textTransform: 'uppercase',
@@ -400,7 +401,7 @@ const styles = StyleSheet.create({
   },
   titleHeading: {
     fontSize: 32,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: BRAND.mainText,
     letterSpacing: -0.6,
     lineHeight: 38,
@@ -409,7 +410,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     color: BRAND.secondaryText,
-    fontWeight: '400',
+    fontFamily: fonts.regular,
     marginBottom: 32,
   },
 
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: BRAND.dangerText,
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
   },
 
   // Form
@@ -442,7 +443,7 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 13.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: BRAND.mainText,
   },
   inputContainer: {
@@ -473,7 +474,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: BRAND.mainText,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   clearBtn: {
     padding: 4,
@@ -513,7 +514,7 @@ const styles = StyleSheet.create({
   signInButtonText: {
     color: BRAND.white,
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     letterSpacing: 0.2,
   },
   btnArrowIcon: {
@@ -532,7 +533,7 @@ const styles = StyleSheet.create({
   secureAccessText: {
     fontSize: 12,
     color: BRAND.iconMuted,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
 
   // Footer Branding
@@ -544,7 +545,7 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: BRAND.iconMuted,
     letterSpacing: 0.4,
     textTransform: 'lowercase',

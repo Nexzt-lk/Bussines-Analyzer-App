@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNotifications } from './NotificationContext';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import type { AppNotification, NotificationCategoryType } from './notificationTypes';
 
 type FilterType = 'all' | 'order' | 'inventory' | 'summary';
@@ -299,7 +300,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: '#0F172A',
   },
   unreadBadge: {
@@ -311,7 +312,7 @@ const styles = StyleSheet.create({
   unreadBadgeText: {
     color: '#FFFFFF',
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   headerRight: {
     flexDirection: 'row',
@@ -325,7 +326,7 @@ const styles = StyleSheet.create({
   markAllText: {
     fontSize: 13,
     color: colors.primary,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
   },
   closeHeaderButton: {
     padding: 4,
@@ -339,7 +340,7 @@ const styles = StyleSheet.create({
   },
   testBarLabel: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#475569',
     marginBottom: 6,
   },
@@ -362,7 +363,7 @@ const styles = StyleSheet.create({
   },
   testButtonText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#334155',
   },
   filterPillsRow: {
@@ -385,7 +386,7 @@ const styles = StyleSheet.create({
   },
   filterPillText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#64748B',
   },
   filterPillTextActive: {
@@ -434,22 +435,23 @@ const styles = StyleSheet.create({
   },
   itemTitle: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: fonts.medium,
     color: '#1E293B',
     flex: 1,
     marginRight: 8,
   },
   itemTitleBold: {
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
   },
   itemTime: {
     fontSize: 11,
     color: '#94A3B8',
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   itemBody: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: '#475569',
     lineHeight: 18,
   },
@@ -477,12 +479,13 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#334155',
     marginBottom: 8,
   },
   emptySubtitle: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: '#64748B',
     textAlign: 'center',
     lineHeight: 19,
@@ -504,6 +507,6 @@ const styles = StyleSheet.create({
   clearAllText: {
     fontSize: 13,
     color: '#DC2626',
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
   },
 });

@@ -16,6 +16,7 @@ import { productsApi } from '../products/productsApi';
 import { useBranch } from '../branches/BranchContext';
 import { useDebouncedValue } from '@/hooks/Usedebouncedvalue ';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import type { InventoryRow, Category } from '@/lib/types';
 
@@ -417,12 +418,12 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 22,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     marginBottom: 4,
   },
   statLabel: {
     fontSize: 11.5,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
   },
@@ -447,6 +448,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     color: '#0F172A',
     fontSize: 14,
+    fontFamily: fonts.medium,
   },
   stockFilterBtn: {
     flexDirection: 'row',
@@ -469,7 +471,7 @@ const styles = StyleSheet.create({
   },
   stockFilterBtnText: {
     fontSize: 12.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#0F172A',
   },
   stockFilterBtnTextLow: {
@@ -508,7 +510,7 @@ const styles = StyleSheet.create({
   },
   filterMenuTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
   },
   filterMenuItem: {
@@ -540,14 +542,15 @@ const styles = StyleSheet.create({
   },
   filterMenuLabel: {
     fontSize: 13.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#1E293B',
   },
   filterMenuLabelActive: {
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   filterMenuSub: {
     fontSize: 11,
+    fontFamily: fonts.regular,
     color: '#64748B',
     marginTop: 1,
   },
@@ -563,7 +566,7 @@ const styles = StyleSheet.create({
   },
   filterCountText: {
     fontSize: 11.5,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   categoryFilterContainer: {
     marginBottom: 14,
@@ -583,11 +586,11 @@ const styles = StyleSheet.create({
   },
   categoryPillText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textSecondary,
   },
   categoryPillTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
 });

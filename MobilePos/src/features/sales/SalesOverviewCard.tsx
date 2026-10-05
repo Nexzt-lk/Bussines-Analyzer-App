@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { LineChart, BarChart } from 'react-native-gifted-charts';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import BarDetailPanel, { formatCompactNumber, getNiceAxis, getSalesAxis } from '@/components/BarDetailPanel';
 import type { ChartPoint } from './salesApi';
 
@@ -302,12 +303,6 @@ export default function SalesOverviewCard({
   );
 }
 
-const serifFont = Platform.select({
-  ios: 'Georgia',
-  android: 'serif',
-  default: 'serif',
-});
-
 const styles = StyleSheet.create({
   // Chart Card Container
   chartCard: {
@@ -332,7 +327,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
     letterSpacing: -0.3,
   },
@@ -343,7 +338,7 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.primary,
   },
   loadingContainer: {
@@ -354,6 +349,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 13,
+    fontFamily: fonts.medium,
     color: colors.textMuted,
   },
 
@@ -366,14 +362,13 @@ const styles = StyleSheet.create({
   },
   incomeLabel: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     letterSpacing: 1.2,
     color: '#71717A',
   },
   incomeAmount: {
-    fontFamily: serifFont,
+    fontFamily: fonts.extraBold,
     fontSize: 24,
-    fontWeight: '800',
     color: '#18181B',
     marginTop: 4,
     letterSpacing: -0.5,
@@ -393,7 +388,7 @@ const styles = StyleSheet.create({
   },
   trendText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.successText,
   },
   trendTextNegative: {
@@ -410,13 +405,13 @@ const styles = StyleSheet.create({
   xAxisLabel: {
     color: '#64748B',
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     textAlign: 'center',
   },
   yAxisLabel: {
     color: '#94A3B8',
     fontSize: 10,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   statTooltipCard: {
     backgroundColor: '#FFFFFF',
@@ -435,13 +430,13 @@ const styles = StyleSheet.create({
   },
   statTooltipTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#18181B',
     marginBottom: 3,
   },
   statTooltipIncome: {
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.primary,
   },
 });

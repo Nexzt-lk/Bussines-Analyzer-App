@@ -12,6 +12,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
+import { fonts } from '@/constants/fonts';
+
 const { width } = Dimensions.get('window');
 const LOGO_SIZE = Math.min(width * 0.6, 240);
 
@@ -111,7 +113,7 @@ const styles = StyleSheet.create({
   messageText: {
     fontSize: 13,
     color: '#64748B',
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   footer: {
     alignItems: 'center',
@@ -120,7 +122,7 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#64748B',
     letterSpacing: 0.3,
   },

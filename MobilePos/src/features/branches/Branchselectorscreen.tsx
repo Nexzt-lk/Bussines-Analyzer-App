@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { branchesApi } from './branchApi';
 import { useBranch } from './BranchContext';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import AppLoadingScreen from '@/components/AppLoadingScreen';
 import type { Branch } from '@/lib/types';
 
@@ -134,7 +135,7 @@ const styles = StyleSheet.create({
   loadingText: {
     color: colors.textSecondary,
     fontSize: 14,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   header: {
     marginBottom: 24,
@@ -142,20 +143,21 @@ const styles = StyleSheet.create({
   },
   tagLabel: {
     fontSize: 12,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     letterSpacing: 1.2,
     color: colors.primary,
     marginBottom: 8,
   },
   title: {
     fontSize: 24,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: colors.textPrimary,
     marginBottom: 6,
   },
   subtitle: {
     fontSize: 13,
     color: colors.textSecondary,
+    fontFamily: fonts.regular,
     marginTop: 2,
   },
   errorBox: {
@@ -172,7 +174,7 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.dangerText,
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     flex: 1,
   },
   listContent: {
@@ -216,7 +218,7 @@ const styles = StyleSheet.create({
   },
   branchName: {
     fontSize: 17,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#18181B',
     letterSpacing: -0.2,
   },
@@ -225,7 +227,7 @@ const styles = StyleSheet.create({
     color: '#71717A',
     marginTop: 2,
     marginBottom: 8,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   activeBadgeRow: {
     flexDirection: 'row',
@@ -245,7 +247,7 @@ const styles = StyleSheet.create({
   },
   activeBadgeText: {
     fontSize: 11.5,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0D7F41',
   },
   emptyContainer: {
@@ -264,7 +266,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   emptySubtitle: {
@@ -272,5 +274,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 6,
+    fontFamily: fonts.regular,
   },
 });

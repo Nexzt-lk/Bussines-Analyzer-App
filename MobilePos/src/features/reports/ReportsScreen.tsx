@@ -14,6 +14,7 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import { toLocalYmd } from '@/lib/reporting';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import {
@@ -583,11 +584,12 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: colors.textPrimary,
   },
   headerSubtitle: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: colors.textSecondary,
     marginTop: 2,
   },
@@ -603,7 +605,7 @@ const styles = StyleSheet.create({
   },
   branchBadgeText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#059669',
   },
 
@@ -636,12 +638,12 @@ const styles = StyleSheet.create({
   },
   filterText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#374151',
   },
   filterTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
 
   customBadgeRow: {
@@ -663,12 +665,12 @@ const styles = StyleSheet.create({
   },
   customBadgeText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#065F46',
   },
   customBadgeAction: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#059669',
   },
 
@@ -705,13 +707,13 @@ const styles = StyleSheet.create({
   },
   cardLabel: {
     fontSize: 13,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
     marginBottom: 4,
   },
   cardValue: {
     fontSize: 20,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
     letterSpacing: -0.3,
   },
@@ -727,7 +729,7 @@ const styles = StyleSheet.create({
   },
   trendText: {
     fontSize: 11,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
   },
 
@@ -753,11 +755,12 @@ const styles = StyleSheet.create({
   },
   healthTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
   },
   healthSub: {
     fontSize: 12,
+    fontFamily: fonts.regular,
     color: '#64748B',
     marginTop: 2,
   },
@@ -768,7 +771,7 @@ const styles = StyleSheet.create({
   },
   healthStatusText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   progressBarWrapper: {
     height: 10,
@@ -801,16 +804,14 @@ const styles = StyleSheet.create({
   },
   legendLabel: {
     fontSize: 12,
+    fontFamily: fonts.regular,
     color: '#64748B',
   },
   legendValue: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
   },
-
-
-
 
   // Modal Styles
   modalBackdrop: {
@@ -840,17 +841,18 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
   },
   modalSubtitle: {
     fontSize: 12,
+    fontFamily: fonts.regular,
     color: '#64748B',
     marginTop: 2,
   },
   modalSectionLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#94A3B8',
     letterSpacing: 0.5,
     marginBottom: 8,
@@ -869,7 +871,7 @@ const styles = StyleSheet.create({
   },
   presetBtnText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#334155',
   },
   dateInputsRow: {
@@ -882,7 +884,7 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 10,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#64748B',
     marginBottom: 6,
   },
@@ -894,6 +896,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 13,
+    fontFamily: fonts.medium,
     color: '#0F172A',
   },
   modalActionsRow: {
@@ -909,7 +912,7 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#64748B',
   },
   modalApplyBtn: {
@@ -924,7 +927,7 @@ const styles = StyleSheet.create({
   },
   modalApplyText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#FFFFFF',
   },
 
@@ -944,7 +947,7 @@ const styles = StyleSheet.create({
   },
   sectionCardTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
     marginBottom: 20,
     letterSpacing: -0.3,
@@ -980,14 +983,14 @@ const styles = StyleSheet.create({
   },
   inventoryCount: {
     fontSize: 24,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: '#0F172A',
     marginBottom: 4,
     letterSpacing: -0.5,
   },
   inventoryLabel: {
     fontSize: 11,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
   },

@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useNotifications } from './NotificationContext';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import type { AppNotification } from './notificationTypes';
 
 export const NotificationBanner: React.FC = () => {
@@ -174,7 +175,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
     flex: 1,
     marginRight: 6,
@@ -182,10 +183,11 @@ const styles = StyleSheet.create({
   timeText: {
     fontSize: 11,
     color: '#94A3B8',
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   body: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: '#475569',
     lineHeight: 18,
   },

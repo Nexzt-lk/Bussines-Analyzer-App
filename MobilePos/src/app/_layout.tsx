@@ -11,6 +11,14 @@ import { NotificationBanner } from '@/features/notifications/NotificationBanner'
 import { NotificationModal } from '@/features/notifications/NotificationModal';
 import { colors } from '@/constants/colors';
 import AppLoadingScreen from '@/components/AppLoadingScreen';
+import {
+  useFonts,
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+  Poppins_700Bold,
+  Poppins_800ExtraBold,
+} from '@expo-google-fonts/poppins';
 
 export default function RootLayout() {
   return (
@@ -33,6 +41,14 @@ export default function RootLayout() {
 // the manual "swap which Stack.Screens exist" approach used in the
 // earlier React Navigation version — idiomatic for file-based routing.
 function RootNavigation() {
+  const [fontsLoaded] = useFonts({
+    Poppins_400Regular,
+    Poppins_500Medium,
+    Poppins_600SemiBold,
+    Poppins_700Bold,
+    Poppins_800ExtraBold,
+  });
+
   const { currentUser, loading: authLoading } = useAuth();
   const { currentBranch, loading: branchLoading } = useBranch();
   const segments = useSegments();
@@ -48,7 +64,7 @@ function RootNavigation() {
     return () => clearTimeout(timer);
   }, []);
 
-  const loading = !splashFinished || authLoading || branchLoading;
+  const loading = !fontsLoaded || !splashFinished || authLoading || branchLoading;
 
   useEffect(() => {
     if (loading) return;
@@ -76,7 +92,7 @@ function RootNavigation() {
         headerShown: true,
         headerStyle: { backgroundColor: colors.background },
         headerTintColor: colors.textPrimary,
-        headerTitleStyle: { fontWeight: '700', color: colors.textPrimary, fontSize: 18 },
+        headerTitleStyle: { fontFamily: 'Poppins_700Bold', color: colors.textPrimary, fontSize: 18 },
         headerShadowVisible: false,
         contentStyle: { backgroundColor: colors.background },
       }}

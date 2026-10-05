@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import { InvalidDateRangeError, MissingBranchError } from '@/lib/reporting';
 
 /** User-facing text for a failed data load. */
@@ -47,12 +48,12 @@ const styles = StyleSheet.create({
   text: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: colors.dangerText,
   },
   retry: {
     fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.dangerText,
   },
 });

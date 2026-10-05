@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 
 export interface BarPoint {
   label?: string;
@@ -175,7 +176,7 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 12,
     color: colors.textMuted,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   dot: {
     width: 8,
@@ -187,12 +188,12 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#64748B',
   },
   value: {
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
     marginTop: 2,
   },
@@ -201,11 +202,12 @@ const styles = StyleSheet.create({
   },
   comparison: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   share: {
     fontSize: 11,
     color: colors.textMuted,
+    fontFamily: fonts.medium,
     marginTop: 2,
   },
 });

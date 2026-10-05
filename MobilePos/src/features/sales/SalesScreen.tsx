@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import { toLocalYmd } from '@/lib/reporting';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import {
@@ -468,12 +469,6 @@ export default function SalesScreen() {
   );
 }
 
-const serifFont = Platform.select({
-  ios: 'Georgia',
-  android: 'serif',
-  default: 'serif',
-});
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -491,11 +486,12 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: colors.textPrimary,
   },
   headerSubtitle: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: colors.textSecondary,
     marginTop: 2,
   },
@@ -526,11 +522,11 @@ const styles = StyleSheet.create({
   },
   filterText: {
     fontSize: 14,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#71717A',
   },
   filterTextActive: {
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#18181B',
   },
 
@@ -556,20 +552,19 @@ const styles = StyleSheet.create({
   customBadgeText: {
     fontSize: 13,
     color: colors.primaryText,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
   },
   customBadgeAction: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.primary,
     marginLeft: 8,
   },
 
   // Recent Orders Section
   recentOrdersHeading: {
-    fontFamily: serifFont,
+    fontFamily: fonts.bold,
     fontSize: 22,
-    fontWeight: '700',
     color: '#18181B',
     marginTop: 32,
     marginBottom: 14,
@@ -598,11 +593,12 @@ const styles = StyleSheet.create({
   },
   orderNumber: {
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#18181B',
   },
   orderMeta: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: '#71717A',
     marginTop: 4,
   },
@@ -612,9 +608,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   orderAmount: {
-    fontFamily: serifFont,
+    fontFamily: fonts.bold,
     fontSize: 18,
-    fontWeight: '700',
     color: '#18181B',
   },
 
@@ -630,6 +625,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
+    fontFamily: fonts.medium,
     color: colors.textMuted,
   },
 
@@ -660,13 +656,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalOrderNumber: {
-    fontFamily: serifFont,
+    fontFamily: fonts.bold,
     fontSize: 20,
-    fontWeight: '700',
     color: '#18181B',
   },
   modalOrderTime: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: '#71717A',
     marginTop: 2,
   },
@@ -694,18 +690,18 @@ const styles = StyleSheet.create({
   },
   modalStatusText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.successText,
   },
   modalCustomerText: {
     fontSize: 13,
     color: colors.textSecondary,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
 
   modalSectionLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     letterSpacing: 1,
     color: '#94A3B8',
     marginBottom: 10,
@@ -725,17 +721,18 @@ const styles = StyleSheet.create({
   },
   modalItemName: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#18181B',
   },
   modalItemSub: {
     fontSize: 12,
+    fontFamily: fonts.regular,
     color: '#71717A',
     marginTop: 2,
   },
   modalItemPrice: {
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#18181B',
   },
 
@@ -750,13 +747,12 @@ const styles = StyleSheet.create({
   },
   modalTotalLabel: {
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#18181B',
   },
   modalTotalAmount: {
-    fontFamily: serifFont,
+    fontFamily: fonts.extraBold,
     fontSize: 22,
-    fontWeight: '800',
     color: colors.primary,
   },
   modalActionButton: {
@@ -769,7 +765,7 @@ const styles = StyleSheet.create({
   modalActionButtonText: {
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
 
   // Presets in Custom Modal
@@ -788,7 +784,7 @@ const styles = StyleSheet.create({
   },
   presetButtonText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textSecondary,
   },
 
@@ -803,7 +799,7 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textSecondary,
     marginBottom: 6,
   },
@@ -820,6 +816,7 @@ const styles = StyleSheet.create({
   textInput: {
     flex: 1,
     fontSize: 13,
+    fontFamily: fonts.medium,
     color: '#18181B',
   },
 });
