@@ -67,6 +67,8 @@ export interface SalesReportResponse {
   stats: SalesStats;
   chartData: ChartPoint[];
   orders: OrderRecord[];
+  periodDateLabel?: string;
+  isToday?: boolean;
 }
 
 export interface DashboardSummary {
@@ -140,33 +142,35 @@ const formatDateLabel = (isoString: string, now: Date): string => {
 const getPeriods = (
   filter: SalesFilterType,
   now: Date,
-  customRange?: CustomDateRange
+  customRange?: CustomDateRange,
+  targetDate?: Date
 ): { current: DateRange; previous: DateRange } => {
+  const base = targetDate ?? now;
   if (filter === 'today') {
-    const current = { start: startOfDay(now), end: endOfDay(now) };
+    const current = { start: startOfDay(base), end: endOfDay(base) };
     return { current, previous: previousPeriod(current) };
   }
   if (filter === 'week') {
-    const monday = startOfDay(addDays(now, -((now.getDay() + 6) % 7)));
+    const monday = startOfDay(addDays(base, -((base.getDay() + 6) % 7)));
     const current = { start: monday, end: endOfDay(addDays(monday, 6)) };
     return { current, previous: { start: addDays(monday, -7), end: endOfDay(addDays(monday, -1)) } };
   }
   if (filter === 'month') {
     return {
       current: {
-        start: new Date(now.getFullYear(), now.getMonth(), 1),
-        end: endOfDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
+        start: new Date(base.getFullYear(), base.getMonth(), 1),
+        end: endOfDay(new Date(base.getFullYear(), base.getMonth() + 1, 0)),
       },
       previous: {
-        start: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-        end: endOfDay(new Date(now.getFullYear(), now.getMonth(), 0)),
+        start: new Date(base.getFullYear(), base.getMonth() - 1, 1),
+        end: endOfDay(new Date(base.getFullYear(), base.getMonth(), 0)),
       },
     };
   }
   // Custom: defaults to month-to-date when no/invalid dates are given.
   const current = resolveCustomRange(customRange?.startDate, customRange?.endDate, {
-    start: new Date(now.getFullYear(), now.getMonth(), 1),
-    end: endOfDay(now),
+    start: new Date(base.getFullYear(), base.getMonth(), 1),
+    end: endOfDay(base),
   });
   return { current, previous: previousPeriod(current) };
 };
@@ -303,11 +307,12 @@ export const salesApi = {
   getSalesData: async (
     branchId: string,
     filter: SalesFilterType,
-    customRange?: CustomDateRange
+    customRange?: CustomDateRange,
+    targetDate?: Date
   ): Promise<SalesReportResponse> => {
     const shopId = requireBranchId(branchId);
     const now = new Date();
-    const { current, previous } = getPeriods(filter, now, customRange);
+    const { current, previous } = getPeriods(filter, now, customRange, targetDate);
 
     const [orders, prevOrders] = await Promise.all([
       fetchOrders<RawOrderRow>(shopId, current, ORDER_COLUMNS),
@@ -320,6 +325,33 @@ export const salesApi = {
       prevOrders.filter((o) => isPaidOrder(o.status)).reduce((s, o) => s + orderTotal(o), 0)
     );
     const trend = computeTrend(totalIncome, prevIncome);
+
+    const isToday =
+      filter === 'today' &&
+      (!targetDate || startOfDay(targetDate).getTime() === startOfDay(now).getTime());
+
+    let periodDateLabel = '';
+    if (filter === 'today') {
+      const d = targetDate ?? now;
+      if (isToday) {
+        periodDateLabel = `Today, ${d.getDate()} ${shortMonth(d)}`;
+      } else if (startOfDay(d).getTime() === startOfDay(addDays(now, -1)).getTime()) {
+        periodDateLabel = `Yesterday, ${d.getDate()} ${shortMonth(d)}`;
+      } else {
+        periodDateLabel = d.toLocaleDateString('en-GB', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+        });
+      }
+    } else if (filter === 'week') {
+      periodDateLabel = `${current.start.getDate()} ${shortMonth(current.start)} – ${current.end.getDate()} ${shortMonth(current.end)}`;
+    } else if (filter === 'month') {
+      periodDateLabel = current.start.toLocaleDateString('en-GB', {
+        month: 'long',
+        year: 'numeric',
+      });
+    }
 
     return {
       filter,
@@ -334,6 +366,8 @@ export const salesApi = {
       },
       chartData: buildChart(filter, current, paidOrders),
       orders: orders.slice(0, MAX_LISTED_ORDERS).map((o) => mapOrder(o, now)),
+      periodDateLabel,
+      isToday,
     };
   },
 

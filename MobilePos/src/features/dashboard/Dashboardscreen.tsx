@@ -757,6 +757,28 @@ export default function DashboardScreen() {
         </View>
       </View>
 
+      {/* Supplier Stock Purchases Action Banner */}
+      <TouchableOpacity
+        style={styles.supplierPurchasesHeroBtn}
+        onPress={() => router.push('/supplier-purchases')}
+        activeOpacity={0.85}
+      >
+        <View style={styles.supplierBtnLeft}>
+          <View style={styles.supplierBtnIconBox}>
+            <Ionicons name="cart" size={18} color="#059669" />
+          </View>
+          <View style={styles.supplierBtnTexts}>
+            <Text style={styles.supplierBtnTitle}>Supplier Stock Purchases</Text>
+            <Text style={styles.supplierBtnSub}>Cost spent buying stock from suppliers</Text>
+          </View>
+        </View>
+
+        <View style={styles.supplierBtnRight}>
+          <Text style={styles.supplierBtnAction}>View Costs</Text>
+          <Ionicons name="arrow-forward" size={14} color="#059669" />
+        </View>
+      </TouchableOpacity>
+
       {/* Search Bar & Stock Status Dropdown Filter */}
       <View style={styles.searchRow}>
         <View style={styles.stockSearchContainer}>
@@ -2079,6 +2101,65 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
+  },
+  supplierPurchasesHeroBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  supplierBtnLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  supplierBtnIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  supplierBtnTexts: {
+    flex: 1,
+  },
+  supplierBtnTitle: {
+    fontSize: 13.5,
+    fontFamily: fonts.bold,
+    color: '#0F172A',
+  },
+  supplierBtnSub: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  supplierBtnRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  supplierBtnAction: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: '#059669',
   },
   categoryFilterContainer: {
     marginBottom: 16,

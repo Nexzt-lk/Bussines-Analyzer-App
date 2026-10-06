@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,14 @@ import {
   Platform,
   Modal,
   TextInput,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
 import { fonts } from '@/constants/fonts';
-import { toLocalYmd } from '@/lib/reporting';
+import { toLocalYmd, addDays } from '@/lib/reporting';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import {
   salesApi,
@@ -75,11 +77,206 @@ export default function SalesScreen() {
     return toLocalYmd(new Date());
   });
 
+  // Selected date for Daily / Weekly / Monthly navigation
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
+
+  // Check if currently viewing the live/current day
+  const isViewingToday = useMemo(() => {
+    const now = new Date();
+    if (activeFilter === 'today') {
+      return (
+        selectedDate.getDate() === now.getDate() &&
+        selectedDate.getMonth() === now.getMonth() &&
+        selectedDate.getFullYear() === now.getFullYear()
+      );
+    }
+    if (activeFilter === 'week') {
+      return selectedDate >= addDays(now, -6);
+    }
+    if (activeFilter === 'month') {
+      return (
+        selectedDate.getMonth() === now.getMonth() &&
+        selectedDate.getFullYear() === now.getFullYear()
+      );
+    }
+    return true;
+  }, [activeFilter, selectedDate]);
+
+  // Handle previous day / period
+  const handlePrevious = useCallback(() => {
+    if (activeFilter === 'today') {
+      setSelectedDate((d) => addDays(d, -1));
+    } else if (activeFilter === 'week') {
+      setSelectedDate((d) => addDays(d, -7));
+    } else if (activeFilter === 'month') {
+      setSelectedDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    }
+  }, [activeFilter]);
+
+  // Handle next day / period (cannot exceed today)
+  const handleNext = useCallback(() => {
+    if (isViewingToday) return;
+    const now = new Date();
+    if (activeFilter === 'today') {
+      setSelectedDate((d) => {
+        const next = addDays(d, 1);
+        return next > now ? now : next;
+      });
+    } else if (activeFilter === 'week') {
+      setSelectedDate((d) => {
+        const next = addDays(d, 7);
+        return next > now ? now : next;
+      });
+    } else if (activeFilter === 'month') {
+      setSelectedDate((d) => {
+        const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+        return next > now ? now : next;
+      });
+    }
+  }, [activeFilter, isViewingToday]);
+
+  // Smooth animated transition for date swiping
+  const translateX = useRef(new Animated.Value(0)).current;
+  const swipeOpacity = useRef(new Animated.Value(1)).current;
+
+  const handlePreviousRef = useRef(handlePrevious);
+  handlePreviousRef.current = handlePrevious;
+
+  const handleNextRef = useRef(handleNext);
+  handleNextRef.current = handleNext;
+
+  const isViewingTodayRef = useRef(isViewingToday);
+  isViewingTodayRef.current = isViewingToday;
+
+  const activeFilterRef = useRef(activeFilter);
+  activeFilterRef.current = activeFilter;
+
+  // PanResponder to intercept horizontal screen swipes without breaking vertical scroll
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (_evt, gestureState) => {
+          if (activeFilterRef.current === 'custom') return false;
+          return (
+            Math.abs(gestureState.dx) > 14 &&
+            Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+          );
+        },
+        onMoveShouldSetPanResponderCapture: (_evt, gestureState) => {
+          if (activeFilterRef.current === 'custom') return false;
+          return (
+            Math.abs(gestureState.dx) > 14 &&
+            Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+          );
+        },
+        onPanResponderMove: (_evt, gestureState) => {
+          translateX.setValue(gestureState.dx * 0.35);
+        },
+        onPanResponderRelease: (_evt, gestureState) => {
+          const dx = gestureState.dx;
+          const vx = gestureState.vx;
+          const isSwipeRight = dx > 35 || (dx > 15 && vx > 0.25);
+          const isSwipeLeft = dx < -35 || (dx < -15 && vx < -0.25);
+
+          if (isSwipeRight) {
+            // Swiped right -> go backward in time to previous day / period
+            Animated.parallel([
+              Animated.timing(translateX, {
+                toValue: 180,
+                duration: 110,
+                useNativeDriver: true,
+              }),
+              Animated.timing(swipeOpacity, {
+                toValue: 0.2,
+                duration: 110,
+                useNativeDriver: true,
+              }),
+            ]).start(() => {
+              handlePreviousRef.current();
+              translateX.setValue(-180);
+              Animated.parallel([
+                Animated.spring(translateX, {
+                  toValue: 0,
+                  friction: 8,
+                  tension: 50,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(swipeOpacity, {
+                  toValue: 1,
+                  duration: 140,
+                  useNativeDriver: true,
+                }),
+              ]).start();
+            });
+          } else if (isSwipeLeft) {
+            // Swiped left -> go forward in time to next day / period
+            if (!isViewingTodayRef.current) {
+              Animated.parallel([
+                Animated.timing(translateX, {
+                  toValue: -180,
+                  duration: 110,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(swipeOpacity, {
+                  toValue: 0.2,
+                  duration: 110,
+                  useNativeDriver: true,
+                }),
+              ]).start(() => {
+                handleNextRef.current();
+                translateX.setValue(180);
+                Animated.parallel([
+                  Animated.spring(translateX, {
+                    toValue: 0,
+                    friction: 8,
+                    tension: 50,
+                    useNativeDriver: true,
+                  }),
+                  Animated.timing(swipeOpacity, {
+                    toValue: 1,
+                    duration: 140,
+                    useNativeDriver: true,
+                  }),
+                ]).start();
+              });
+            } else {
+              // Already at today: elastic spring bounce back
+              Animated.spring(translateX, {
+                toValue: 0,
+                friction: 7,
+                tension: 60,
+                useNativeDriver: true,
+              }).start();
+            }
+          } else {
+            // Insufficient movement, snap back smoothly
+            Animated.spring(translateX, {
+              toValue: 0,
+              friction: 8,
+              tension: 50,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(translateX, {
+            toValue: 0,
+            friction: 8,
+            tension: 50,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [translateX, swipeOpacity]
+  );
+
   // Load Sales Data
   const loadData = useCallback(
-    async (filter: SalesFilterType, range?: CustomDateRange) => {
+    async (filter: SalesFilterType, range?: CustomDateRange, date?: Date) => {
       try {
-        const data = await salesApi.getSalesData(branchId, filter, range);
+        const data = await salesApi.getSalesData(branchId, filter, range, date);
         setSalesData(data);
         setLoadError(null);
       } catch (err) {
@@ -94,8 +291,15 @@ export default function SalesScreen() {
   );
 
   useEffect(() => {
+    setLoading(true);
     let isCancelled = false;
-    salesApi.getSalesData(branchId, activeFilter, activeFilter === 'custom' ? customRange : undefined)
+    salesApi
+      .getSalesData(
+        branchId,
+        activeFilter,
+        activeFilter === 'custom' ? customRange : undefined,
+        selectedDate
+      )
       .then((data) => {
         if (!isCancelled) {
           setSalesData(data);
@@ -114,15 +318,20 @@ export default function SalesScreen() {
     return () => {
       isCancelled = true;
     };
-  }, [branchId, activeFilter, customRange]);
+  }, [branchId, activeFilter, customRange, selectedDate]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData(activeFilter, activeFilter === 'custom' ? customRange : undefined);
-  }, [activeFilter, customRange, loadData]);
+    loadData(
+      activeFilter,
+      activeFilter === 'custom' ? customRange : undefined,
+      selectedDate
+    );
+  }, [activeFilter, customRange, selectedDate, loadData]);
 
   // Handle Tab / Filter Switch
   const handleFilterPress = (filter: SalesFilterType) => {
+    setSelectedDate(new Date());
     if (filter === 'custom') {
       setActiveFilter('custom');
       setIsCustomModalOpen(true);
@@ -241,52 +450,119 @@ export default function SalesScreen() {
         </TouchableOpacity>
       )}
 
-      {/* 3. Income Over Time Card with Chart */}
-      <SalesOverviewCard
-        daysPerBar={daysPerBar}
-        firstAxisStep={activeFilter === 'today' ? DAILY_VIEW_FIRST_STEP : undefined}
-        chartData={salesData?.chartData ?? []}
-        total={salesData?.stats.totalIncome ?? 0}
-        trendPercentage={salesData?.stats.trendPercentage ?? '0%'}
-        trendPositive={salesData?.stats.trendPositive !== false}
-        loading={loading}
-        variant={activeFilter === 'today' ? 'line' : 'bar'}
-        barWidth={activeFilter === 'month' ? 32 : 24}
-        amountLabel="INCOME"
-      />
-
-      {/* 4. Recent Orders Section */}
-      <Text style={styles.recentOrdersHeading}>Recent orders</Text>
-
-      <View style={styles.ordersList}>
-        {salesData?.orders && salesData.orders.length > 0 ? (
-          salesData.orders.map((ord) => (
-            <TouchableOpacity
-              key={ord.id}
-              style={styles.orderCard}
-              onPress={() => setSelectedOrder(ord)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.orderLeft}>
-                <Text style={styles.orderNumber}>{ord.orderNumber}</Text>
-                <Text style={styles.orderMeta}>
-                  {ord.time} · {ord.paymentMethod} · {ord.itemCount} {ord.itemCount === 1 ? 'item' : 'items'}
-                </Text>
-              </View>
-
-              <View style={styles.orderRight}>
-                <Text style={styles.orderAmount}>{formatRs(ord.total)}</Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-              </View>
-            </TouchableOpacity>
-          ))
-        ) : (
-          <View style={styles.emptyCard}>
-            <Ionicons name="receipt-outline" size={28} color={colors.textMuted} />
-            <Text style={styles.emptyText}>No orders found for this timeframe.</Text>
+      {/* 2.5. Interactive Period / Date Indicator (Swipe Screen to change dates) */}
+      {activeFilter !== 'custom' && (
+        <View style={styles.dateHeaderCard}>
+          <View style={styles.dateHeaderLeft}>
+            <View style={styles.dateCalendarIconBox}>
+              <Ionicons name="calendar" size={16} color="#059669" />
+            </View>
+            <View style={styles.dateHeaderTexts}>
+              <Text style={styles.dateHeaderTitle}>
+                {salesData?.periodDateLabel || 'Loading date...'}
+              </Text>
+              <Text style={styles.dateHeaderSubtitle}>
+                {isViewingToday ? 'Live Real-Time Data' : 'Historical Record'}
+              </Text>
+            </View>
           </View>
-        )}
-      </View>
+
+          <View style={styles.swipeIndicatorPill}>
+            <Ionicons name="swap-horizontal" size={14} color="#059669" />
+            <Text style={styles.swipeIndicatorText}>Swipe screen</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Quick Jump back to Today if viewing a past date */}
+      {!isViewingToday && activeFilter !== 'custom' && (
+        <TouchableOpacity
+          style={styles.jumpTodayBadge}
+          onPress={() => setSelectedDate(new Date())}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-undo" size={13} color="#059669" />
+          <Text style={styles.jumpTodayText}>Return to Today's Live Sales</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Swipeable Animated Container covering the Graph and Orders Table */}
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={[
+          styles.swipeArea,
+          {
+            transform: [{ translateX }],
+            opacity: swipeOpacity,
+          },
+        ]}
+      >
+        {/* 3. Income Over Time Card with Chart */}
+        <SalesOverviewCard
+          daysPerBar={daysPerBar}
+          firstAxisStep={activeFilter === 'today' ? DAILY_VIEW_FIRST_STEP : undefined}
+          chartData={salesData?.chartData ?? []}
+          total={salesData?.stats.totalIncome ?? 0}
+          trendPercentage={salesData?.stats.trendPercentage ?? '0%'}
+          trendPositive={salesData?.stats.trendPositive !== false}
+          loading={loading}
+          variant={activeFilter === 'today' ? 'line' : 'bar'}
+          barWidth={activeFilter === 'month' ? 32 : 24}
+          amountLabel={isViewingToday ? "TODAY'S INCOME" : 'TOTAL INCOME'}
+        />
+
+        {/* 4. Orders Section Header */}
+        <View style={styles.recentOrdersHeaderRow}>
+          <Text style={styles.recentOrdersHeading}>
+            {isViewingToday
+              ? 'Recent orders'
+              : `Orders on ${salesData?.periodDateLabel || 'selected date'}`}
+          </Text>
+          {salesData?.orders && salesData.orders.length > 0 && (
+            <View style={styles.orderCountPill}>
+              <Text style={styles.orderCountPillText}>
+                {salesData.orders.length}{' '}
+                {salesData.orders.length === 1 ? 'order' : 'orders'}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.ordersList}>
+          {salesData?.orders && salesData.orders.length > 0 ? (
+            salesData.orders.map((ord) => (
+              <TouchableOpacity
+                key={ord.id}
+                style={styles.orderCard}
+                onPress={() => setSelectedOrder(ord)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.orderLeft}>
+                  <Text style={styles.orderNumber}>{ord.orderNumber}</Text>
+                  <Text style={styles.orderMeta}>
+                    {ord.time} · {ord.paymentMethod} · {ord.itemCount}{' '}
+                    {ord.itemCount === 1 ? 'item' : 'items'}
+                  </Text>
+                </View>
+
+                <View style={styles.orderRight}>
+                  <Text style={styles.orderAmount}>{formatRs(ord.total)}</Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                </View>
+              </TouchableOpacity>
+            ))
+          ) : (
+            <View style={styles.emptyCard}>
+              <Ionicons name="receipt-outline" size={28} color={colors.textMuted} />
+              <Text style={styles.emptyText}>
+                {isViewingToday
+                  ? 'No orders found for this timeframe.'
+                  : `No orders recorded for ${salesData?.periodDateLabel || 'this date'}.`}
+              </Text>
+            </View>
+          )}
+        </View>
+      </Animated.View>
 
       {/* 5. Order Detail Modal */}
       <Modal
@@ -570,12 +846,111 @@ const styles = StyleSheet.create({
   },
 
   // Recent Orders Section
+  recentOrdersHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 26,
+    marginBottom: 14,
+  },
   recentOrdersHeading: {
     fontFamily: fonts.bold,
-    fontSize: 22,
+    fontSize: 20,
     color: '#18181B',
-    marginTop: 32,
+  },
+  orderCountPill: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  orderCountPillText: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+    color: '#64748B',
+  },
+  swipeArea: {
+    // Captures swipe gestures across the chart & orders
+  },
+  dateHeaderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  dateHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  dateCalendarIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateHeaderTexts: {
+    flex: 1,
+  },
+  dateHeaderTitle: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: '#0F172A',
+  },
+  dateHeaderSubtitle: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  swipeIndicatorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#F0FDF4',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+  },
+  swipeIndicatorText: {
+    fontSize: 11.5,
+    fontFamily: fonts.semiBold,
+    color: '#059669',
+  },
+  jumpTodayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
     marginBottom: 14,
+  },
+  jumpTodayText: {
+    fontSize: 11.5,
+    fontFamily: fonts.bold,
+    color: '#059669',
   },
   ordersList: {
     gap: 10,

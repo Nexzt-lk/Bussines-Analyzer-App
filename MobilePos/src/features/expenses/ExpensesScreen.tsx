@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
   Dimensions,
   LayoutChangeEvent,
   Alert,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,7 +21,7 @@ import { LineChart, BarChart } from 'react-native-gifted-charts';
 import { useBranch } from '../branches/BranchContext';
 import { colors } from '@/constants/colors';
 import { fonts } from '@/constants/fonts';
-import { toLocalYmd } from '@/lib/reporting';
+import { toLocalYmd, addDays } from '@/lib/reporting';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import BarDetailPanel, { formatCompactNumber, getNiceAxis } from '@/components/BarDetailPanel';
 import {
@@ -112,11 +114,206 @@ export default function ExpensesScreen() {
     return toLocalYmd(new Date());
   });
 
+  // Selected date for Daily / Weekly / Monthly navigation
+  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
+
+  // Check if currently viewing the live/current day
+  const isViewingToday = useMemo(() => {
+    const now = new Date();
+    if (activeFilter === 'today') {
+      return (
+        selectedDate.getDate() === now.getDate() &&
+        selectedDate.getMonth() === now.getMonth() &&
+        selectedDate.getFullYear() === now.getFullYear()
+      );
+    }
+    if (activeFilter === 'week') {
+      return selectedDate >= addDays(now, -6);
+    }
+    if (activeFilter === 'month') {
+      return (
+        selectedDate.getMonth() === now.getMonth() &&
+        selectedDate.getFullYear() === now.getFullYear()
+      );
+    }
+    return true;
+  }, [activeFilter, selectedDate]);
+
+  // Handle previous day / period
+  const handlePrevious = useCallback(() => {
+    if (activeFilter === 'today') {
+      setSelectedDate((d) => addDays(d, -1));
+    } else if (activeFilter === 'week') {
+      setSelectedDate((d) => addDays(d, -7));
+    } else if (activeFilter === 'month') {
+      setSelectedDate((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1));
+    }
+  }, [activeFilter]);
+
+  // Handle next day / period (cannot exceed today)
+  const handleNext = useCallback(() => {
+    if (isViewingToday) return;
+    const now = new Date();
+    if (activeFilter === 'today') {
+      setSelectedDate((d) => {
+        const next = addDays(d, 1);
+        return next > now ? now : next;
+      });
+    } else if (activeFilter === 'week') {
+      setSelectedDate((d) => {
+        const next = addDays(d, 7);
+        return next > now ? now : next;
+      });
+    } else if (activeFilter === 'month') {
+      setSelectedDate((d) => {
+        const next = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+        return next > now ? now : next;
+      });
+    }
+  }, [activeFilter, isViewingToday]);
+
+  // Smooth animated transition for date swiping
+  const translateX = useRef(new Animated.Value(0)).current;
+  const swipeOpacity = useRef(new Animated.Value(1)).current;
+
+  const handlePreviousRef = useRef(handlePrevious);
+  handlePreviousRef.current = handlePrevious;
+
+  const handleNextRef = useRef(handleNext);
+  handleNextRef.current = handleNext;
+
+  const isViewingTodayRef = useRef(isViewingToday);
+  isViewingTodayRef.current = isViewingToday;
+
+  const activeFilterRef = useRef(activeFilter);
+  activeFilterRef.current = activeFilter;
+
+  // PanResponder to intercept horizontal screen swipes without breaking vertical scroll
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (_evt, gestureState) => {
+          if (activeFilterRef.current === 'custom') return false;
+          return (
+            Math.abs(gestureState.dx) > 14 &&
+            Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+          );
+        },
+        onMoveShouldSetPanResponderCapture: (_evt, gestureState) => {
+          if (activeFilterRef.current === 'custom') return false;
+          return (
+            Math.abs(gestureState.dx) > 14 &&
+            Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.3
+          );
+        },
+        onPanResponderMove: (_evt, gestureState) => {
+          translateX.setValue(gestureState.dx * 0.35);
+        },
+        onPanResponderRelease: (_evt, gestureState) => {
+          const dx = gestureState.dx;
+          const vx = gestureState.vx;
+          const isSwipeRight = dx > 35 || (dx > 15 && vx > 0.25);
+          const isSwipeLeft = dx < -35 || (dx < -15 && vx < -0.25);
+
+          if (isSwipeRight) {
+            // Swiped right -> go backward in time to previous day / period
+            Animated.parallel([
+              Animated.timing(translateX, {
+                toValue: 180,
+                duration: 110,
+                useNativeDriver: true,
+              }),
+              Animated.timing(swipeOpacity, {
+                toValue: 0.2,
+                duration: 110,
+                useNativeDriver: true,
+              }),
+            ]).start(() => {
+              handlePreviousRef.current();
+              translateX.setValue(-180);
+              Animated.parallel([
+                Animated.spring(translateX, {
+                  toValue: 0,
+                  friction: 8,
+                  tension: 50,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(swipeOpacity, {
+                  toValue: 1,
+                  duration: 140,
+                  useNativeDriver: true,
+                }),
+              ]).start();
+            });
+          } else if (isSwipeLeft) {
+            // Swiped left -> go forward in time to next day / period
+            if (!isViewingTodayRef.current) {
+              Animated.parallel([
+                Animated.timing(translateX, {
+                  toValue: -180,
+                  duration: 110,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(swipeOpacity, {
+                  toValue: 0.2,
+                  duration: 110,
+                  useNativeDriver: true,
+                }),
+              ]).start(() => {
+                handleNextRef.current();
+                translateX.setValue(180);
+                Animated.parallel([
+                  Animated.spring(translateX, {
+                    toValue: 0,
+                    friction: 8,
+                    tension: 50,
+                    useNativeDriver: true,
+                  }),
+                  Animated.timing(swipeOpacity, {
+                    toValue: 1,
+                    duration: 140,
+                    useNativeDriver: true,
+                  }),
+                ]).start();
+              });
+            } else {
+              // Already at today: elastic spring bounce back
+              Animated.spring(translateX, {
+                toValue: 0,
+                friction: 7,
+                tension: 60,
+                useNativeDriver: true,
+              }).start();
+            }
+          } else {
+            // Insufficient movement, snap back smoothly
+            Animated.spring(translateX, {
+              toValue: 0,
+              friction: 8,
+              tension: 50,
+              useNativeDriver: true,
+            }).start();
+          }
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(translateX, {
+            toValue: 0,
+            friction: 8,
+            tension: 50,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [translateX, swipeOpacity]
+  );
+
   // Load Expenses Data from live Supabase table
   const loadData = useCallback(
-    async (filter: ExpenseFilterType, range?: CustomDateRange) => {
+    async (filter: ExpenseFilterType, range?: CustomDateRange, date?: Date) => {
       try {
-        const data = await expensesApi.getExpensesData(branchId, filter, range);
+        const data = await expensesApi.getExpensesData(branchId, filter, range, date);
         setReportData(data);
         setLoadError(null);
       } catch (err) {
@@ -130,12 +327,16 @@ export default function ExpensesScreen() {
     [branchId]
   );
 
-  // Reloads on branch, filter or custom-range change (applying a new custom
-  // range while "Custom" is already selected must refresh the data too).
+  // Reloads on branch, filter, custom-range or selected date change
   useEffect(() => {
     let cancelled = false;
     expensesApi
-      .getExpensesData(branchId, activeFilter, activeFilter === 'custom' ? customRange : undefined)
+      .getExpensesData(
+        branchId,
+        activeFilter,
+        activeFilter === 'custom' ? customRange : undefined,
+        selectedDate
+      )
       .then((data) => {
         if (cancelled) return;
         setReportData(data);
@@ -152,18 +353,23 @@ export default function ExpensesScreen() {
     return () => {
       cancelled = true;
     };
-  }, [branchId, activeFilter, customRange]);
+  }, [branchId, activeFilter, customRange, selectedDate]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData(activeFilter, activeFilter === 'custom' ? customRange : undefined);
-  }, [activeFilter, customRange, loadData]);
+    loadData(
+      activeFilter,
+      activeFilter === 'custom' ? customRange : undefined,
+      selectedDate
+    );
+  }, [activeFilter, customRange, selectedDate, loadData]);
 
   const formatRs = useCallback((num: number) => {
     return 'Rs ' + num.toLocaleString();
   }, []);
 
   const handleFilterPress = (filterId: ExpenseFilterType) => {
+    setSelectedDate(new Date());
     if (filterId === 'custom') {
       setIsCustomModalOpen(true);
     } else if (filterId !== activeFilter) {
@@ -312,8 +518,55 @@ export default function ExpensesScreen() {
         </TouchableOpacity>
       )}
 
-      {/* 3. Expenses Over Time Card with Chart */}
-      <View style={styles.chartCard} onLayout={onCardLayout}>
+      {/* 2.5. Interactive Period / Date Indicator (Swipe screen to change dates) */}
+      {activeFilter !== 'custom' && (
+        <View style={styles.dateHeaderCard}>
+          <View style={styles.dateHeaderLeft}>
+            <View style={styles.dateCalendarIconBox}>
+              <Ionicons name="calendar" size={16} color="#D97706" />
+            </View>
+            <View style={styles.dateHeaderTexts}>
+              <Text style={styles.dateHeaderTitle}>
+                {reportData?.periodDateLabel || 'Loading date...'}
+              </Text>
+              <Text style={styles.dateHeaderSubtitle}>
+                {isViewingToday ? 'Live Real-Time Costs' : 'Historical Record'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.swipeIndicatorPill}>
+            <Ionicons name="swap-horizontal" size={14} color="#D97706" />
+            <Text style={styles.swipeIndicatorText}>Swipe screen</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Quick Jump back to Today if viewing a past date */}
+      {!isViewingToday && activeFilter !== 'custom' && (
+        <TouchableOpacity
+          style={styles.jumpTodayBadge}
+          onPress={() => setSelectedDate(new Date())}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-undo" size={13} color="#D97706" />
+          <Text style={styles.jumpTodayText}>Return to Today's Live Expenses</Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Swipeable Animated Container covering Chart and Expenses List */}
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={[
+          styles.swipeArea,
+          {
+            transform: [{ translateX }],
+            opacity: swipeOpacity,
+          },
+        ]}
+      >
+        {/* 3. Expenses Over Time Card with Chart */}
+        <View style={styles.chartCard} onLayout={onCardLayout}>
         {loading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="small" color={colors.primary} />
@@ -525,6 +778,7 @@ export default function ExpensesScreen() {
           </View>
         )}
       </View>
+      </Animated.View>
 
       {/* 6. Expense Detail Modal */}
       <Modal
@@ -674,6 +928,89 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 4,
     marginBottom: 16,
+  },
+  swipeArea: {
+    // Captures swipe gestures across the chart & expenses
+  },
+  dateHeaderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  dateHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  dateCalendarIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#FFFBEB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateHeaderTexts: {
+    flex: 1,
+  },
+  dateHeaderTitle: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: '#0F172A',
+  },
+  dateHeaderSubtitle: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  swipeIndicatorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  swipeIndicatorText: {
+    fontSize: 11.5,
+    fontFamily: fonts.semiBold,
+    color: '#D97706',
+  },
+  jumpTodayBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    gap: 6,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    marginBottom: 14,
+  },
+  jumpTodayText: {
+    fontSize: 11.5,
+    fontFamily: fonts.bold,
+    color: '#D97706',
   },
   filterPill: {
     flex: 1,
