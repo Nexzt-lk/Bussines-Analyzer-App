@@ -21,13 +21,14 @@ import { LoginLockedError } from './authApi';
 import { useBranch } from '../branches/BranchContext';
 import { storage } from '@/lib/storage';
 import { fonts } from '@/constants/fonts';
+import AppBackground from '@/components/AppBackground';
 
 // Color Palette defined in Design System
 const BRAND = {
   primary: '#16A34A',
   primaryDark: '#15803D',
   lightGreen: '#DCFCE7',
-  background: '#F8FAF9',
+  background: '#F8FAFC',
   white: '#FFFFFF',
   mainText: '#17201A',
   secondaryText: '#6B7280',
@@ -126,9 +127,8 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
 
-      {/* Subtle organic green background shapes matching reference */}
-      <View style={styles.bgBlobTopRight} pointerEvents="none" />
-      <View style={styles.bgBlobBottomLeft} pointerEvents="none" />
+      {/* Dynamic Ambient Background Style */}
+      <AppBackground />
 
       <KeyboardAvoidingView
         style={styles.keyboardContainer}

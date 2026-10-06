@@ -18,6 +18,7 @@ import { useDebouncedValue } from '@/hooks/Usedebouncedvalue ';
 import { colors } from '@/constants/colors';
 import { fonts } from '@/constants/fonts';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
+import AppBackground from '@/components/AppBackground';
 import type { InventoryRow, Category } from '@/lib/types';
 
 const InventoryItem = memo(function InventoryItem({ item }: { item: InventoryRow }) {
@@ -105,6 +106,9 @@ export default function InventoryScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Dynamic Ambient Background Style */}
+      <AppBackground />
+
       {/* 1. Summary Cards Top of Search Bar (Total Products, Low Stock, Out of Stock) */}
       <View style={styles.statsRow}>
         {/* Total Products Card */}
@@ -391,7 +395,7 @@ export default function InventoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background,
     paddingHorizontal: 16,
     paddingTop: 16,
   },

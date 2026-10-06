@@ -26,6 +26,7 @@ import { productsApi } from '../products/productsApi';
 import { branchesApi } from '../branches/branchApi';
 import { colors } from '@/constants/colors';
 import { fonts } from '@/constants/fonts';
+import { supabase } from '@/lib/supabaseClient';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import type { InventoryRow, Category, Branch } from '@/lib/types';
 import SalesScreen from '../sales/SalesScreen';
@@ -33,7 +34,11 @@ import ExpensesScreen from '../expenses/ExpensesScreen';
 import ReportsScreen from '../reports/ReportsScreen';
 import { reportsApi, type ReportResponse } from '../reports/reportsApi';
 import SalesOverviewCard from '../sales/SalesOverviewCard';
+import AppBackground from '@/components/AppBackground';
 import TopProductsCard from '../reports/TopProductsCard';
+import CashDrawerCard from '../cash/CashDrawerCard';
+import StockOverviewCard from '../inventory/StockOverviewCard';
+import { cashSessionApi, type TodayCashSessionSummary } from '../cash/cashSessionApi';
 import { DAILY_VIEW_FIRST_STEP } from '@/components/BarDetailPanel';
 import { useNotifications } from '../notifications/NotificationContext';
 
@@ -74,21 +79,30 @@ export default function DashboardScreen() {
   const [homeLoadError, setHomeLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Cash Session & Cashier Till data
+  const [cashSession, setCashSession] = useState<TodayCashSessionSummary | null>(null);
+  const [loadingCashSession, setLoadingCashSession] = useState(true);
+
   // Applies one round of home-screen results. Never shows Rs 0 / 0 low
   // stock as if it were real when a load failed.
   const applyDashboardResults = useCallback(
     (
       invRes: PromiseSettledResult<InventoryRow[]>,
       repRes: PromiseSettledResult<ReportResponse>,
-      catRes: PromiseSettledResult<Category[]>
+      catRes: PromiseSettledResult<Category[]>,
+      cashRes?: PromiseSettledResult<TodayCashSessionSummary>
     ) => {
       setInventoryItems(invRes.status === 'fulfilled' ? invRes.value : []);
       setReportData(repRes.status === 'fulfilled' ? repRes.value : null);
       if (catRes.status === 'fulfilled' && catRes.value.length > 0) setCategories(catRes.value);
+      if (cashRes) {
+        setCashSession(cashRes.status === 'fulfilled' ? cashRes.value : null);
+      }
       const failed = [repRes, invRes].find((r) => r.status === 'rejected');
       setHomeLoadError(failed?.status === 'rejected' ? describeLoadError(failed.reason) : null);
       setLoadingInventory(false);
       setLoadingReport(false);
+      setLoadingCashSession(false);
       setRefreshing(false);
     },
     []
@@ -101,6 +115,7 @@ export default function DashboardScreen() {
         inventoryApi.search(branchId, ''),
         reportsApi.getReportData(branchId, 'today'),
         productsApi.getCategories(branchId),
+        cashSessionApi.getTodaySession(branchId),
       ]),
     [branchId]
   );
@@ -109,8 +124,8 @@ export default function DashboardScreen() {
   useEffect(() => {
     if (!branchId) return;
     let cancelled = false;
-    fetchDashboard().then(([inv, rep, cat]) => {
-      if (!cancelled) applyDashboardResults(inv, rep, cat);
+    fetchDashboard().then(([inv, rep, cat, cash]) => {
+      if (!cancelled) applyDashboardResults(inv, rep, cat, cash);
     });
     return () => {
       cancelled = true;
@@ -128,8 +143,34 @@ export default function DashboardScreen() {
   const onRefresh = useCallback(() => {
     if (!branchId) return;
     setRefreshing(true);
-    fetchDashboard().then(([inv, rep, cat]) => applyDashboardResults(inv, rep, cat));
+    fetchDashboard().then(([inv, rep, cat, cash]) => applyDashboardResults(inv, rep, cat, cash));
   }, [branchId, fetchDashboard, applyDashboardResults]);
+
+  // Real-time live listener for cash_sessions updates from desktop POS
+  useEffect(() => {
+    if (!branchId) return;
+    const channel = supabase
+      .channel(`rt-cash-sessions-${branchId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cash_sessions',
+          filter: `shop_id=eq.${branchId}`,
+        },
+        () => {
+          cashSessionApi.getTodaySession(branchId).then((res) => {
+            setCashSession(res);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [branchId]);
 
   // Derived low stock and out of stock items
   const lowStockItems = useMemo(
@@ -284,18 +325,16 @@ export default function DashboardScreen() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor="#FFFFFF"
+          tintColor="#0D7F41"
           colors={['#0D7F41']}
         />
       }
     >
-      {/* Top Emerald Gradient Hero Header */}
-      <LinearGradient
-        colors={['#043A1D', '#0A5C2E', '#107E40']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0.9, y: 1 }}
-        style={styles.greenHeaderGradient}
-      >
+      {/* Ambient Top Glow for subtle luxury styling */}
+      <View style={styles.ambientTopGlow} pointerEvents="none" />
+
+      {/* Top White Brand & Status Header Card */}
+      <View style={styles.whiteHeaderCard}>
         {/* Top Brand Bar & Live Status */}
         <View style={styles.headerTopRow}>
           <View style={styles.headerBrandCluster}>
@@ -322,7 +361,7 @@ export default function DashboardScreen() {
               onPress={openNotificationModal}
               activeOpacity={0.8}
             >
-              <Ionicons name="notifications-outline" size={20} color="#FFFFFF" />
+              <Ionicons name="notifications-outline" size={20} color="#334155" />
               {unreadCount > 0 && (
                 <View style={styles.headerBadge}>
                   <Text style={styles.headerBadgeText}>
@@ -346,11 +385,11 @@ export default function DashboardScreen() {
         {/* Dynamic Date & Greeting */}
         <View style={styles.headerGreetingSection}>
           <View style={styles.headerDateBadgeRow}>
-            <Ionicons name="calendar-outline" size={13} color="#A7F3D0" />
+            <Ionicons name="calendar-outline" size={13} color="#0D7F41" />
             <Text style={styles.headerDateBadge}>{formattedDate}</Text>
           </View>
           <Text style={styles.headerGreetingText}>
-            {greeting}, {userName} 👋
+            {greeting}
           </Text>
         </View>
 
@@ -362,7 +401,7 @@ export default function DashboardScreen() {
         >
           <View style={styles.headerBranchLeft}>
             <View style={styles.headerBranchIconCircle}>
-              <Ionicons name="storefront" size={16} color="#FFFFFF" />
+              <Ionicons name="storefront" size={16} color="#0D7F41" />
             </View>
             <View style={styles.headerBranchTextCol}>
               <Text style={styles.headerBranchOverline}>ACTIVE LOCATION</Text>
@@ -377,11 +416,110 @@ export default function DashboardScreen() {
             <Ionicons name="swap-horizontal" size={14} color="#FFFFFF" />
           </View>
         </TouchableOpacity>
-      </LinearGradient>
+      </View>
 
       {/* Main Home Content */}
       <View style={styles.homeBodyContent}>
         <LoadErrorBanner message={homeLoadError} onRetry={onRefresh} />
+
+        {/* 1. Prominent Quick Actions Hub (Right at the top as large touch buttons) */}
+        <View style={styles.largeQuickHubSection}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionOverlineTitle}>QUICK ACTIONS</Text>
+            <Text style={styles.sectionSubtitle}>Instant shortcuts</Text>
+          </View>
+
+          <View style={styles.largeQuickGrid}>
+            <View style={styles.largeQuickRow}>
+              {/* Sales Action Card */}
+              <TouchableOpacity
+                style={styles.largeActionCard}
+                onPress={() => setActiveTab('sales')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.largeActionTopRow}>
+                  <View style={[styles.largeActionIconBox, { backgroundColor: '#ECFDF5' }]}>
+                    <Ionicons name="cart" size={22} color="#059669" />
+                  </View>
+                  <View style={styles.largeActionArrowPill}>
+                    <Ionicons name="arrow-forward" size={13} color="#059669" />
+                  </View>
+                </View>
+                <Text style={styles.largeActionTitle}>Sales</Text>
+                <Text style={styles.largeActionSub}>POS & Orders</Text>
+              </TouchableOpacity>
+
+              {/* Inventory Action Card */}
+              <TouchableOpacity
+                style={styles.largeActionCard}
+                onPress={() => setActiveTab('stock')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.largeActionTopRow}>
+                  <View style={[styles.largeActionIconBox, { backgroundColor: '#EFF6FF' }]}>
+                    <Ionicons name="cube" size={22} color="#2563EB" />
+                  </View>
+                  {inventoryStats.low > 0 ? (
+                    <View style={styles.inventoryAlertPill}>
+                      <Text style={styles.inventoryAlertText}>{inventoryStats.low} Low</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.largeActionArrowPill}>
+                      <Ionicons name="arrow-forward" size={13} color="#2563EB" />
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.largeActionTitle}>Inventory</Text>
+                <Text
+                  style={[
+                    styles.largeActionSub,
+                    inventoryStats.low > 0 && { color: '#D97706', fontFamily: fonts.semiBold },
+                  ]}
+                >
+                  {inventoryStats.low > 0 ? `${inventoryStats.low} items low` : 'Manage stock'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.largeQuickRow}>
+              {/* Expenses Action Card */}
+              <TouchableOpacity
+                style={styles.largeActionCard}
+                onPress={() => setActiveTab('expenses')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.largeActionTopRow}>
+                  <View style={[styles.largeActionIconBox, { backgroundColor: '#FFFBEB' }]}>
+                    <Ionicons name="wallet" size={22} color="#D97706" />
+                  </View>
+                  <View style={styles.largeActionArrowPill}>
+                    <Ionicons name="arrow-forward" size={13} color="#D97706" />
+                  </View>
+                </View>
+                <Text style={styles.largeActionTitle}>Expenses</Text>
+                <Text style={styles.largeActionSub}>Track & add costs</Text>
+              </TouchableOpacity>
+
+              {/* Reports Action Card */}
+              <TouchableOpacity
+                style={styles.largeActionCard}
+                onPress={() => setActiveTab('reports')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.largeActionTopRow}>
+                  <View style={[styles.largeActionIconBox, { backgroundColor: '#FAF5FF' }]}>
+                    <Ionicons name="bar-chart" size={22} color="#7C3AED" />
+                  </View>
+                  <View style={styles.largeActionArrowPill}>
+                    <Ionicons name="arrow-forward" size={13} color="#7C3AED" />
+                  </View>
+                </View>
+                <Text style={styles.largeActionTitle}>Reports</Text>
+                <Text style={styles.largeActionSub}>Analytics & growth</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
 
         {/* 1. Executive Net Sales Hero Card */}
         <LinearGradient
@@ -394,7 +532,6 @@ export default function DashboardScreen() {
           <View style={styles.heroTopRow}>
             <View style={styles.heroLabelGroup}>
               <View style={styles.heroSparkleCircle}>
-                <Ionicons name="sparkles" size={13} color="#34D399" />
               </View>
               <Text style={styles.heroOverline}>TODAY'S NET SALES</Text>
             </View>
@@ -453,186 +590,99 @@ export default function DashboardScreen() {
           </View>
         </LinearGradient>
 
-        {/* 2. Quick Navigation Hub (4 Action Tiles) */}
-        <View style={styles.quickHubSection}>
-          <Text style={styles.sectionOverlineTitle}>QUICK ACTIONS</Text>
-          <View style={styles.quickHubGrid}>
-            {/* Sales Action */}
-            <TouchableOpacity
-              style={styles.quickActionTile}
-              onPress={() => setActiveTab('sales')}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.quickActionIconBox, { backgroundColor: '#ECFDF5' }]}>
-                <Ionicons name="cart" size={20} color="#059669" />
-              </View>
-              <Text style={styles.quickActionTitle}>Sales</Text>
-              <Text style={styles.quickActionSub}>POS & Orders</Text>
-            </TouchableOpacity>
-
-            {/* Stock Action */}
-            <TouchableOpacity
-              style={styles.quickActionTile}
-              onPress={() => setActiveTab('stock')}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.quickActionIconBox, { backgroundColor: '#EFF6FF' }]}>
-                <Ionicons name="cube" size={20} color="#2563EB" />
-              </View>
-              <Text style={styles.quickActionTitle}>Inventory</Text>
-              <Text
-                style={[
-                  styles.quickActionSub,
-                  inventoryStats.low > 0 && { color: '#D97706', fontFamily: fonts.semiBold },
-                ]}
-              >
-                {inventoryStats.low > 0 ? `${inventoryStats.low} Low Stock` : 'All Products'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Expenses Action */}
-            <TouchableOpacity
-              style={styles.quickActionTile}
-              onPress={() => setActiveTab('expenses')}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.quickActionIconBox, { backgroundColor: '#FFFBEB' }]}>
-                <Ionicons name="wallet" size={20} color="#D97706" />
-              </View>
-              <Text style={styles.quickActionTitle}>Expenses</Text>
-              <Text style={styles.quickActionSub}>Track Costs</Text>
-            </TouchableOpacity>
-
-            {/* Reports Action */}
-            <TouchableOpacity
-              style={styles.quickActionTile}
-              onPress={() => setActiveTab('reports')}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.quickActionIconBox, { backgroundColor: '#FAF5FF' }]}>
-                <Ionicons name="bar-chart" size={20} color="#9333EA" />
-              </View>
-              <Text style={styles.quickActionTitle}>Reports</Text>
-              <Text style={styles.quickActionSub}>Analytics</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* 3. Performance Bento Grid (4 Cards) */}
-        <View style={styles.performanceSection}>
-          <Text style={styles.sectionOverlineTitle}>VITAL SIGNS</Text>
-
-          <View style={styles.cardsGrid}>
-            <View style={styles.cardRow}>
-              {/* Card 1: Net Revenue */}
-              <View style={styles.metricCard}>
-                <View style={[styles.metricIconCircle, { backgroundColor: '#ECFDF5' }]}>
-                  <Ionicons name="cash-outline" size={20} color="#059669" />
-                </View>
-                <Text style={styles.metricLabel}>Net Revenue</Text>
-                {loadingReport ? (
-                  <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
-                ) : (
-                  <Text style={styles.metricValue}>{formatRs(reportStats?.revenue ?? 0)}</Text>
-                )}
-                <View style={styles.metricFooterRow}>
-                  <Ionicons name="shield-checkmark-outline" size={12} color="#059669" />
-                  <Text style={[styles.metricFooterText, { color: '#059669' }]}>
-                    {reportStats?.profitMargin ?? 0}% margin
-                  </Text>
-                </View>
-              </View>
-
-              {/* Card 2: Today Orders */}
-              <View style={styles.metricCard}>
-                <View style={[styles.metricIconCircle, { backgroundColor: '#EFF6FF' }]}>
-                  <Ionicons name="bag-handle-outline" size={20} color="#2563EB" />
-                </View>
-                <Text style={styles.metricLabel}>Today's Orders</Text>
-                {loadingReport ? (
-                  <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
-                ) : (
-                  <Text style={styles.metricValue}>
-                    {(reportStats?.totalOrders ?? 0).toLocaleString()}
-                  </Text>
-                )}
-                <View style={styles.metricFooterRow}>
-                  <Ionicons name="pricetag-outline" size={12} color={colors.textMuted} />
-                  <Text style={styles.metricFooterText}>
-                    Avg {formatRs(reportStats?.avgOrderValue ?? 0)}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.cardRow}>
-              {/* Card 3: Stock Alerts */}
-              <TouchableOpacity
-                style={styles.metricCard}
-                onPress={() => {
-                  setStockFilterType('low');
-                  setActiveTab('stock');
-                }}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.metricIconCircle, { backgroundColor: '#FEF3C7' }]}>
-                  <Ionicons name="warning-outline" size={20} color="#D97706" />
-                </View>
-                <Text style={styles.metricLabel}>Stock Alerts</Text>
-                {loadingInventory ? (
-                  <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
-                ) : (
-                  <Text style={styles.metricValue}>{inventoryStats.low} Low</Text>
-                )}
-                <View style={styles.metricFooterRow}>
-                  <Ionicons name="alert-circle-outline" size={12} color="#D97706" />
-                  <Text style={[styles.metricFooterText, { color: '#D97706' }]}>
-                    {inventoryStats.out} Out • View →
-                  </Text>
-                </View>
-              </TouchableOpacity>
-
-              {/* Card 4: Store Expenses */}
-              <TouchableOpacity
-                style={styles.metricCard}
-                onPress={() => setActiveTab('expenses')}
-                activeOpacity={0.75}
-              >
-                <View style={[styles.metricIconCircle, { backgroundColor: '#FEE2E2' }]}>
-                  <Ionicons name="receipt-outline" size={20} color="#DC2626" />
-                </View>
-                <Text style={styles.metricLabel}>Store Expenses</Text>
-                {loadingReport ? (
-                  <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
-                ) : (
-                  <Text style={styles.metricValue}>{formatRs(reportStats?.totalExpense ?? 0)}</Text>
-                )}
-                <View style={styles.metricFooterRow}>
-                  <Ionicons name="wallet-outline" size={12} color="#DC2626" />
-                  <Text style={[styles.metricFooterText, { color: '#DC2626' }]}>
-                    Operating cost • View →
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-
-        {/* 4. Today's Sales Overview Chart */}
-        <SalesOverviewCard
-          title="Today's Sales Momentum"
-          actionLabel="View all"
-          onActionPress={() => setActiveTab('sales')}
-          chartData={salesOverviewData}
-          total={reportStats?.totalSales ?? 0}
-          trendPercentage={reportStats?.salesTrend ?? '0%'}
-          trendPositive={reportStats?.salesTrendPositive !== false}
-          loading={loadingReport}
-          variant="line"
-          firstAxisStep={DAILY_VIEW_FIRST_STEP}
+        {/* 1.5 Cashier Till / Cash in Drawer Live Card */}
+        <CashDrawerCard
+          cashSession={cashSession}
+          cashSales={reportData?.paymentBreakdown.cash ?? 0}
+          cashExpenses={reportData?.stats.totalExpense ?? 0}
+          loading={loadingCashSession || loadingReport}
         />
 
-        {/* 5. Top Selling Products Leaderboard */}
+        {/* 1.8 Stock & Inventory Health Special Card */}
+        <StockOverviewCard
+          totalProducts={inventoryStats.total}
+          lowStockCount={inventoryStats.low}
+          outOfStockCount={inventoryStats.out}
+          loading={loadingInventory}
+          onViewLowStock={() => {
+            setStockFilterType('low');
+            setActiveTab('stock');
+          }}
+          onViewAllStock={() => {
+            setStockFilterType('all');
+            setActiveTab('stock');
+          }}
+        />
+
+        {/* 1.9 Vital Signs Pair: Net Profit & Store Expenses */}
+        <View style={styles.vitalMetricsRow}>
+          {/* Card 1: Net Profit */}
+          <View style={styles.vitalCard}>
+            <View style={styles.vitalCardTop}>
+              <View style={[styles.vitalIconBadge, { backgroundColor: '#ECFDF5' }]}>
+                <Ionicons name="trending-up-outline" size={15} color="#059669" />
+              </View>
+              <Text style={styles.vitalLabel}>Net Profit</Text>
+            </View>
+            {loadingReport ? (
+              <ActivityIndicator size="small" color="#059669" style={styles.vitalLoader} />
+            ) : (
+              <Text style={[styles.vitalValue, { color: '#047857' }]}>
+                {formatRs(reportStats?.revenue ?? 0)}
+              </Text>
+            )}
+            <View style={styles.vitalFooterRow}>
+              <Ionicons name="shield-checkmark-outline" size={11} color="#059669" />
+              <Text style={[styles.vitalFooterText, { color: '#059669' }]}>
+                {reportStats?.profitMargin ?? 0}% margin
+              </Text>
+            </View>
+          </View>
+
+          {/* Card 2: Store Expenses */}
+          <TouchableOpacity
+            style={styles.vitalCard}
+            onPress={() => setActiveTab('expenses')}
+            activeOpacity={0.75}
+          >
+            <View style={styles.vitalCardTop}>
+              <View style={[styles.vitalIconBadge, { backgroundColor: '#FEF2F2' }]}>
+                <Ionicons name="receipt-outline" size={15} color="#DC2626" />
+              </View>
+              <Text style={styles.vitalLabel}>Store Expenses</Text>
+            </View>
+            {loadingReport ? (
+              <ActivityIndicator size="small" color="#DC2626" style={styles.vitalLoader} />
+            ) : (
+              <Text style={[styles.vitalValue, { color: '#B91C1C' }]}>
+                {formatRs(reportStats?.totalExpense ?? 0)}
+              </Text>
+            )}
+            <View style={styles.vitalFooterRow}>
+              <Text style={[styles.vitalFooterText, { color: '#DC2626' }]}>
+                View costs →
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* 2. Today's Sales Overview Chart (Placed below special cards) */}
+        <View style={styles.chartSectionWrapper}>
+          <SalesOverviewCard
+            title="Today's Sales Momentum"
+            actionLabel="View all"
+            onActionPress={() => setActiveTab('sales')}
+            chartData={salesOverviewData}
+            total={reportStats?.totalSales ?? 0}
+            trendPercentage={reportStats?.salesTrend ?? '0%'}
+            trendPositive={reportStats?.salesTrendPositive !== false}
+            loading={loadingReport}
+            variant="line"
+            firstAxisStep={DAILY_VIEW_FIRST_STEP}
+          />
+        </View>
+
+        {/* 3. Top Selling Products Leaderboard */}
         <View style={styles.topProductsSpacer}>
           <TopProductsCard
             title="Fast Moving Products"
@@ -641,6 +691,8 @@ export default function DashboardScreen() {
             onActionPress={() => setActiveTab('reports')}
           />
         </View>
+
+
       </View>
     </ScrollView>
   );
@@ -668,6 +720,9 @@ export default function DashboardScreen() {
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
+      {/* Ambient Top Glow background style */}
+      <View style={styles.ambientTopGlow} pointerEvents="none" />
+
       <View style={styles.sectionHeaderRow}>
         <View>
           <Text style={styles.pageTitle}>Stock & Inventory</Text>
@@ -735,16 +790,16 @@ export default function DashboardScreen() {
               stockFilterType === 'out'
                 ? 'close-circle'
                 : stockFilterType === 'low'
-                ? 'warning'
-                : 'layers-outline'
+                  ? 'warning'
+                  : 'layers-outline'
             }
             size={14}
             color={
               stockFilterType === 'out'
                 ? '#DC2626'
                 : stockFilterType === 'low'
-                ? '#D97706'
-                : colors.primary
+                  ? '#D97706'
+                  : colors.primary
             }
           />
           <Text
@@ -758,8 +813,8 @@ export default function DashboardScreen() {
             {stockFilterType === 'out'
               ? 'Out Stock'
               : stockFilterType === 'low'
-              ? 'Low Stock'
-              : 'All Stock'}
+                ? 'Low Stock'
+                : 'All Stock'}
           </Text>
           <Ionicons
             name="chevron-down"
@@ -768,8 +823,8 @@ export default function DashboardScreen() {
               stockFilterType === 'out'
                 ? '#DC2626'
                 : stockFilterType === 'low'
-                ? '#D97706'
-                : colors.textSecondary
+                  ? '#D97706'
+                  : colors.textSecondary
             }
           />
         </TouchableOpacity>
@@ -1022,6 +1077,9 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.profileScrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Ambient Top Glow background style */}
+        <View style={styles.ambientTopGlow} pointerEvents="none" />
+
         {/* Header: Title & Subtitle */}
         <View style={styles.profileHeader}>
           <Text style={styles.profileMainTitle}>Profile</Text>
@@ -1255,6 +1313,8 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar style="dark" />
+      {/* Dynamic Ambient Background Style */}
+      <AppBackground />
       <View style={styles.container}>
         {/* Main Content Area based on Active Tab */}
         <View style={styles.contentArea}>
@@ -1463,22 +1523,34 @@ const styles = StyleSheet.create({
   },
   homeTabScroll: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
   homeScrollContent: {
     paddingHorizontal: 18,
     paddingTop: Platform.OS === 'android' ? 12 : 8,
     paddingBottom: 32,
   },
-  greenHeaderGradient: {
+  ambientTopGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 180,
+    backgroundColor: '#ECFDF5',
+    opacity: 0.6,
+  },
+  whiteHeaderCard: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
-    padding: 20,
+    padding: 18,
     marginBottom: 16,
-    shadowColor: '#043A1D',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
     shadowRadius: 10,
-    elevation: 4,
+    elevation: 3,
   },
   headerTopRow: {
     flexDirection: 'row',
@@ -1495,17 +1567,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerBrandTitle: {
-    fontSize: 17,
-    fontFamily: fonts.bold,
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
+    fontSize: 18,
+    fontFamily: fonts.extraBold,
+    color: '#0F172A',
+    letterSpacing: 0.2,
   },
   liveStatusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.16)',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
     borderRadius: 8,
     gap: 5,
     marginTop: 2,
@@ -1515,32 +1589,35 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#34D399',
+    backgroundColor: '#10B981',
   },
   liveStatusText: {
     fontSize: 9,
     fontFamily: fonts.bold,
-    color: '#A7F3D0',
+    color: '#047857',
     letterSpacing: 0.8,
   },
   headerLogoCard: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 3,
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
     elevation: 2,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
     overflow: 'hidden',
   },
   headerMiniLogo: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: '100%',
+    height: '100%',
+    borderRadius: 11,
   },
   headerTopRightRow: {
     flexDirection: 'row',
@@ -1548,12 +1625,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerNotificationButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.28)',
+    borderColor: '#E2E8F0',
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
@@ -1578,19 +1655,19 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
   },
   headerProfileSquircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#ECFDF5',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
+    borderColor: '#A7F3D0',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerProfileInitials: {
     fontSize: 14,
     fontFamily: fonts.bold,
-    color: '#FFFFFF',
+    color: '#0D7F41',
     letterSpacing: 0.5,
   },
   headerGreetingSection: {
@@ -1605,24 +1682,24 @@ const styles = StyleSheet.create({
   headerDateBadge: {
     fontSize: 11.5,
     fontFamily: fonts.semiBold,
-    color: '#A7F3D0',
+    color: '#059669',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
   },
   headerGreetingText: {
     fontSize: 22,
     fontFamily: fonts.bold,
-    color: '#FFFFFF',
+    color: '#0F172A',
     letterSpacing: -0.3,
   },
   headerBranchCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+    backgroundColor: '#F8FAFC',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.22)',
+    borderColor: '#E2E8F0',
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
@@ -1634,10 +1711,12 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   headerBranchIconCircle: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1647,22 +1726,22 @@ const styles = StyleSheet.create({
   headerBranchOverline: {
     fontSize: 9.5,
     fontFamily: fonts.bold,
-    color: '#A7F3D0',
+    color: '#64748B',
     letterSpacing: 0.8,
   },
   headerBranchName: {
     fontSize: 13.5,
     fontFamily: fonts.semiBold,
-    color: '#FFFFFF',
+    color: '#0F172A',
     marginTop: 1,
   },
   headerBranchSwitchPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 5,
+    backgroundColor: '#0D7F41',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: 12,
   },
   headerBranchSwitchText: {
@@ -1777,61 +1856,158 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
   },
 
-  // 2. Quick Navigation Hub
-  quickHubSection: {
+  // 1. Prominent Top Quick Actions
+  largeQuickHubSection: {
     marginBottom: 20,
   },
-  sectionOverlineTitle: {
-    fontSize: 11.5,
-    fontFamily: fonts.bold,
-    color: '#64748B',
-    letterSpacing: 1,
-    marginBottom: 10,
-  },
-  quickHubGrid: {
+  sectionTitleRow: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  quickActionTile: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#EDF2F7',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
+    marginBottom: 12,
   },
-  quickActionIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  quickActionTitle: {
+  sectionOverlineTitle: {
     fontSize: 12,
     fontFamily: fonts.bold,
-    color: '#1E293B',
-    textAlign: 'center',
+    color: '#64748B',
+    letterSpacing: 0.8,
   },
-  quickActionSub: {
-    fontSize: 9.5,
-    fontFamily: fonts.medium,
-    color: '#94A3B8',
-    textAlign: 'center',
+  sectionSubtitle: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: '#64748B',
+  },
+  largeQuickGrid: {
+    gap: 10,
+  },
+  largeQuickRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  largeActionCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+    justifyContent: 'space-between',
+    minHeight: 96,
+  },
+  largeActionTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  largeActionIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  largeActionArrowPill: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inventoryAlertPill: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  inventoryAlertText: {
+    fontSize: 10,
+    fontFamily: fonts.bold,
+    color: '#D97706',
+  },
+  largeActionTitle: {
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  largeActionSub: {
+    fontSize: 11.5,
+    fontFamily: fonts.regular,
+    color: '#64748B',
     marginTop: 2,
   },
 
-  // 3. Performance Bento Grid
-  performanceSection: {
-    marginBottom: 4,
+  // Vital Signs Pair Row
+  vitalMetricsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  vitalCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  vitalCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 6,
+  },
+  vitalIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vitalLabel: {
+    fontSize: 11.5,
+    fontFamily: fonts.semiBold,
+    color: '#64748B',
+  },
+  vitalValue: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    letterSpacing: -0.3,
+    marginVertical: 2,
+  },
+  vitalLoader: {
+    marginVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  vitalFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  vitalFooterText: {
+    fontSize: 10.5,
+    fontFamily: fonts.medium,
+  },
+  chartSectionWrapper: {
+    marginBottom: 6,
   },
 
   homeBodyContent: {
@@ -1839,6 +2015,7 @@ const styles = StyleSheet.create({
   },
   tabScroll: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -2153,7 +2330,7 @@ const styles = StyleSheet.create({
   // ----------------------------------------------------
   profileTabScroll: {
     flex: 1,
-    backgroundColor: '#F9FBF9',
+    backgroundColor: 'transparent',
   },
   profileScrollContent: {
     paddingHorizontal: 20,

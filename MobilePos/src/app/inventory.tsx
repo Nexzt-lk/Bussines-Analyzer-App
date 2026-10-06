@@ -1,1 +1,5 @@
-export { default } from '@/features/inventory/InventoryScreen';
+import InventoryScreen from '@/features/inventory/InventoryScreen';
+
+export default function InventoryRoute() {
+  return <InventoryScreen />;
+}

@@ -25,6 +25,7 @@ import {
 } from './salesApi';
 import SalesOverviewCard from './SalesOverviewCard';
 import { DAILY_VIEW_FIRST_STEP } from '@/components/BarDetailPanel';
+import AppBackground from '@/components/AppBackground';
 
 interface FilterOption {
   id: SalesFilterType;
@@ -181,24 +182,26 @@ export default function SalesScreen() {
   })();
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={colors.primary}
-          colors={[colors.primary]}
-        />
-      }
-    >
-      {/* 1. Header Section */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Sales</Text>
-        <Text style={styles.headerSubtitle}>Income over time</Text>
-      </View>
+    <View style={styles.rootWrapper}>
+      <AppBackground />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
+        {/* 1. Header Section */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Sales</Text>
+          <Text style={styles.headerSubtitle}>Income over time</Text>
+        </View>
 
       <LoadErrorBanner message={loadError} onRetry={onRefresh} />
 
@@ -466,13 +469,18 @@ export default function SalesScreen() {
         </View>
       </Modal>
     </ScrollView>
-  );
+  </View>
+);
 }
 
 const styles = StyleSheet.create({
+  rootWrapper: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#F9FBF9', // Soft subtle canvas matching theme
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     paddingHorizontal: 20,

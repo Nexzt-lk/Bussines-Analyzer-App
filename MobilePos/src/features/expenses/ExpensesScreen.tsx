@@ -29,6 +29,7 @@ import {
   ExpensesReportResponse,
   CustomDateRange,
 } from './expensesApi';
+import AppBackground from '@/components/AppBackground';
 
 interface FilterOption {
   id: ExpenseFilterType;
@@ -250,26 +251,28 @@ export default function ExpensesScreen() {
   }, [chartContainerWidth, chartLength, barWidth]);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={colors.primary}
-          colors={[colors.primary]}
-        />
-      }
-    >
-      {/* 1. Header Section */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Expenses</Text>
-          <Text style={styles.headerSubtitle}>Operational costs & spending</Text>
+    <View style={styles.rootWrapper}>
+      <AppBackground />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
+        {/* 1. Header Section */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>Expenses</Text>
+            <Text style={styles.headerSubtitle}>Operational costs & spending</Text>
+          </View>
         </View>
-      </View>
 
       <LoadErrorBanner message={loadError} onRetry={onRefresh} />
 
@@ -632,13 +635,18 @@ export default function ExpensesScreen() {
         </View>
       </Modal>
     </ScrollView>
-  );
+  </View>
+);
 }
 
 const styles = StyleSheet.create({
+  rootWrapper: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#F6FAF7',
+    backgroundColor: 'transparent',
   },
   contentContainer: {
     paddingHorizontal: 16,

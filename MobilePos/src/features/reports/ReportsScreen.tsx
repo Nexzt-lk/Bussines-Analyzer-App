@@ -24,6 +24,7 @@ import {
   CustomDateRange,
 } from './reportsApi';
 import TopProductsCard from './TopProductsCard';
+import AppBackground from '@/components/AppBackground';
 
 interface FilterOption {
   id: ReportFilterType;
@@ -187,23 +188,25 @@ export default function ReportsScreen() {
 
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={colors.primary}
-          colors={[colors.primary]}
-        />
-      }
-    >
-      {/* 1. Header Section */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Financial Reports</Text>
+    <View style={styles.rootWrapper}>
+      <AppBackground />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
+        {/* 1. Header Section */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>Financial Reports</Text>
           <Text style={styles.headerSubtitle}>
             {reportData?.dateLabel ? `${reportData.dateLabel} overview` : 'Business performance & metrics'}
           </Text>
@@ -563,13 +566,18 @@ export default function ReportsScreen() {
         </TouchableOpacity>
       </Modal>
     </ScrollView>
-  );
+  </View>
+);
 }
 
 const styles = StyleSheet.create({
+  rootWrapper: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   container: {
     flex: 1,
-    backgroundColor: '#F8FAF9',
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     paddingHorizontal: 20,
