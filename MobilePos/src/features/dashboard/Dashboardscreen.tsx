@@ -1765,7 +1765,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   activeBadgeText: {
-    fontSize: 12,
+    fontSize: 12, 
     fontWeight: '700',
     color: '#0D7F41',
   },
