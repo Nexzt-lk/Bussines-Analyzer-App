@@ -54,6 +54,8 @@ export interface ExpensesReportResponse {
   stats: ExpenseStats;
   chartData: ChartPoint[];
   expenses: ExpenseRecord[];
+  periodDateLabel?: string;
+  isToday?: boolean;
 }
 
 export interface RawExpenseRow {
@@ -115,18 +117,41 @@ const formatDateLabel = (t: number | null, now: Date): string => {
   return `${d.getDate()} ${shortMonth(d)}`;
 };
 
-/** Rolling periods ending today, in local time. */
-const getPeriod = (filter: ExpenseFilterType, now: Date, customRange?: CustomDateRange): DateRange => {
-  const end = endOfDay(now);
-  if (filter === 'week') return { start: startOfDay(addDays(now, -6)), end };
-  if (filter === 'month') return { start: startOfDay(addDays(now, -29)), end };
-  if (filter === 'custom') {
-    return resolveCustomRange(customRange?.startDate, customRange?.endDate, {
-      start: startOfDay(addDays(now, -6)),
-      end,
-    });
+/** Current and comparison periods for a filter, in local time. */
+const getPeriods = (
+  filter: ExpenseFilterType,
+  now: Date,
+  customRange?: CustomDateRange,
+  targetDate?: Date
+): { current: DateRange; previous: DateRange } => {
+  const base = targetDate ?? now;
+  if (filter === 'today') {
+    const current = { start: startOfDay(base), end: endOfDay(base) };
+    return { current, previous: previousPeriod(current) };
   }
-  return { start: startOfDay(now), end };
+  if (filter === 'week') {
+    const monday = startOfDay(addDays(base, -((base.getDay() + 6) % 7)));
+    const current = { start: monday, end: endOfDay(addDays(monday, 6)) };
+    return { current, previous: { start: addDays(monday, -7), end: endOfDay(addDays(monday, -1)) } };
+  }
+  if (filter === 'month') {
+    return {
+      current: {
+        start: new Date(base.getFullYear(), base.getMonth(), 1),
+        end: endOfDay(new Date(base.getFullYear(), base.getMonth() + 1, 0)),
+      },
+      previous: {
+        start: new Date(base.getFullYear(), base.getMonth() - 1, 1),
+        end: endOfDay(new Date(base.getFullYear(), base.getMonth(), 0)),
+      },
+    };
+  }
+  // Custom
+  const current = resolveCustomRange(customRange?.startDate, customRange?.endDate, {
+    start: startOfDay(addDays(base, -6)),
+    end: endOfDay(base),
+  });
+  return { current, previous: previousPeriod(current) };
 };
 
 const buildChart = (filter: ExpenseFilterType, range: DateRange, rows: RawExpenseRow[]): ChartPoint[] => {
@@ -177,12 +202,12 @@ export const expensesApi = {
   getExpensesData: async (
     branchId: string,
     filter: ExpenseFilterType = 'today',
-    customRange?: CustomDateRange
+    customRange?: CustomDateRange,
+    targetDate?: Date
   ): Promise<ExpensesReportResponse> => {
     const shopId = requireBranchId(branchId);
     const now = new Date();
-    const current = getPeriod(filter, now, customRange);
-    const previous = previousPeriod(current);
+    const { current, previous } = getPeriods(filter, now, customRange, targetDate);
 
     const rows = await fetchExpensesInWindow(
       shopId,
@@ -200,6 +225,33 @@ export const expensesApi = {
     const totalExpenses = currentRows.reduce((s, r) => s + expenseAmount(r), 0);
     const prevTotal = rows.filter(inRange(previous)).reduce((s, r) => s + expenseAmount(r), 0);
     const trend = computeTrend(totalExpenses, prevTotal, { lowerIsBetter: true });
+
+    const isToday =
+      filter === 'today' &&
+      (!targetDate || startOfDay(targetDate).getTime() === startOfDay(now).getTime());
+
+    let periodDateLabel = '';
+    if (filter === 'today') {
+      const d = targetDate ?? now;
+      if (isToday) {
+        periodDateLabel = `Today, ${d.getDate()} ${shortMonth(d)}`;
+      } else if (startOfDay(d).getTime() === startOfDay(addDays(now, -1)).getTime()) {
+        periodDateLabel = `Yesterday, ${d.getDate()} ${shortMonth(d)}`;
+      } else {
+        periodDateLabel = d.toLocaleDateString('en-GB', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+        });
+      }
+    } else if (filter === 'week') {
+      periodDateLabel = `${current.start.getDate()} ${shortMonth(current.start)} – ${current.end.getDate()} ${shortMonth(current.end)}`;
+    } else if (filter === 'month') {
+      periodDateLabel = current.start.toLocaleDateString('en-GB', {
+        month: 'long',
+        year: 'numeric',
+      });
+    }
 
     return {
       filter,
@@ -221,6 +273,8 @@ export const expensesApi = {
         displayDate: formatDateLabel(expenseTime(row), now),
         time: formatTime(row.created_at),
       })),
+      periodDateLabel,
+      isToday,
     };
   },
 };

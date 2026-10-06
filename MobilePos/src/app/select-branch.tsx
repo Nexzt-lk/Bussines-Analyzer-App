@@ -1,1 +1,5 @@
-export { default } from '@/features/branches/Branchselectorscreen';
+import BranchSelectorScreen from '@/features/branches/Branchselectorscreen';
+
+export default function SelectBranchRoute() {
+  return <BranchSelectorScreen />;
+}

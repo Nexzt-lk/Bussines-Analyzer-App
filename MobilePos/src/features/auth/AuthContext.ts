@@ -21,17 +21,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<StoredUser | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Restores the session on app launch — since there's no Supabase Auth
-  // token to refresh, "logged in" simply means "a user is saved locally."
-  useEffect(() => {
-    storage
-      .getUser()
-      .then(setCurrentUser)
-      .catch(() => setCurrentUser(null))
-      .finally(() => setLoading(false));
-  }, []);
+  const [loading, setLoading] = useState(false);
 
   const login = useCallback(async (email: string, password: string) => {
     const user = await authApi.loginWithEmail(email, password);

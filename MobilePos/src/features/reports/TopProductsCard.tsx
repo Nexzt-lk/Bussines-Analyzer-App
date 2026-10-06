@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import type { TopProductItem } from './reportsApi';
 
 interface TopProductsCardProps {
@@ -98,6 +99,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
+    fontFamily: fonts.medium,
     color: '#64748B',
   },
   sectionCard: {
@@ -121,7 +123,7 @@ const styles = StyleSheet.create({
   },
   sectionCardTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
     letterSpacing: -0.3,
   },
@@ -132,7 +134,7 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.primary,
   },
   topProductsList: {
@@ -156,7 +158,7 @@ const styles = StyleSheet.create({
   },
   rankBadgeText: {
     fontSize: 14,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#059669',
   },
   productDetailsCol: {
@@ -170,14 +172,14 @@ const styles = StyleSheet.create({
   },
   productName: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
     flex: 1,
     paddingRight: 8,
   },
   productUnits: {
     fontSize: 12,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
   },
   productProgressTrack: {

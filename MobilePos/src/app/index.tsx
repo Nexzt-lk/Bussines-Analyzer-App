@@ -1,1 +1,5 @@
-export { default } from '@/features/dashboard/Dashboardscreen';
+import DashboardScreen from '@/features/dashboard/Dashboardscreen';
+
+export default function IndexScreen() {
+  return <DashboardScreen />;
+}

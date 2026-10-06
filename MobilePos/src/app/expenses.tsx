@@ -1,1 +1,5 @@
-export { default } from '@/features/expenses/ExpensesScreen';
+import ExpensesScreen from '@/features/expenses/ExpensesScreen';
+
+export default function ExpensesRoute() {
+  return <ExpensesScreen />;
+}

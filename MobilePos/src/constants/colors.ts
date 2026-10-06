@@ -24,13 +24,13 @@ export const colors = {
   heroPill: 'rgba(255, 255, 255, 0.20)',
   heroPillText: '#FFFFFF',
 
-  // Canvas & Surfaces (Crisp light mint & white)
-  background: '#F6FAF7',       // Very soft light mint canvas
+  // Canvas & Surfaces (Crisp modern slate-mint & white)
+  background: '#F8FAFC',       // Ultra-clean modern light slate canvas
   surface: '#FFFFFF',          // Pure white card
-  surfaceSand: '#E8F5EE',      // Soft mint secondary surface
-  surfaceSandDark: '#D1E7DD',
-  border: '#E1EFE6',           // Crisp mint border
-  borderSubtle: '#EDF7F0',
+  surfaceSand: '#F1F5F9',      // Soft slate secondary surface
+  surfaceSandDark: '#E2E8F0',
+  border: '#E2E8F0',           // Crisp modern border
+  borderSubtle: '#F1F5F9',
   borderFocus: '#059669',
 
   // Profile Avatar & Badges

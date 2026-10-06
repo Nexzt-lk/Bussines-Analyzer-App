@@ -12,6 +12,7 @@ import {
   RefreshControl,
   StatusBar as RNStatusBar,
   Switch,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -24,6 +25,8 @@ import { inventoryApi } from '../inventory/inventoryApi';
 import { productsApi } from '../products/productsApi';
 import { branchesApi } from '../branches/branchApi';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
+import { supabase } from '@/lib/supabaseClient';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
 import type { InventoryRow, Category, Branch } from '@/lib/types';
 import SalesScreen from '../sales/SalesScreen';
@@ -31,8 +34,13 @@ import ExpensesScreen from '../expenses/ExpensesScreen';
 import ReportsScreen from '../reports/ReportsScreen';
 import { reportsApi, type ReportResponse } from '../reports/reportsApi';
 import SalesOverviewCard from '../sales/SalesOverviewCard';
+import AppBackground from '@/components/AppBackground';
 import TopProductsCard from '../reports/TopProductsCard';
+import CashDrawerCard from '../cash/CashDrawerCard';
+import StockOverviewCard from '../inventory/StockOverviewCard';
+import { cashSessionApi, type TodayCashSessionSummary } from '../cash/cashSessionApi';
 import { DAILY_VIEW_FIRST_STEP } from '@/components/BarDetailPanel';
+import { useNotifications } from '../notifications/NotificationContext';
 
 type ActiveTab = 'home' | 'sales' | 'expenses' | 'stock' | 'reports' | 'profile';
 
@@ -40,6 +48,12 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { currentBranch, selectBranch, clearBranch } = useBranch();
   const { currentUser, logout } = useAuth();
+  const {
+    settings: notificationSettings,
+    updateSettings: updateNotificationSettings,
+    unreadCount,
+    openModal: openNotificationModal,
+  } = useNotifications();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
 
@@ -47,10 +61,6 @@ export default function DashboardScreen() {
   const [allBranches, setAllBranches] = useState<Branch[]>([]);
   const [loadingBranches, setLoadingBranches] = useState(true);
   const [switchingBranchId, setSwitchingBranchId] = useState<string | null>(null);
-
-  // Notification settings for Profile tab
-  const [lowStockAlerts, setLowStockAlerts] = useState(true);
-  const [dailyClosingAlerts, setDailyClosingAlerts] = useState(true);
 
   // Inventory / Stock data
   const [inventoryItems, setInventoryItems] = useState<InventoryRow[]>([]);
@@ -68,21 +78,30 @@ export default function DashboardScreen() {
   const [homeLoadError, setHomeLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Cash Session & Cashier Till data
+  const [cashSession, setCashSession] = useState<TodayCashSessionSummary | null>(null);
+  const [loadingCashSession, setLoadingCashSession] = useState(true);
+
   // Applies one round of home-screen results. Never shows Rs 0 / 0 low
   // stock as if it were real when a load failed.
   const applyDashboardResults = useCallback(
     (
       invRes: PromiseSettledResult<InventoryRow[]>,
       repRes: PromiseSettledResult<ReportResponse>,
-      catRes: PromiseSettledResult<Category[]>
+      catRes: PromiseSettledResult<Category[]>,
+      cashRes?: PromiseSettledResult<TodayCashSessionSummary>
     ) => {
       setInventoryItems(invRes.status === 'fulfilled' ? invRes.value : []);
       setReportData(repRes.status === 'fulfilled' ? repRes.value : null);
       if (catRes.status === 'fulfilled' && catRes.value.length > 0) setCategories(catRes.value);
+      if (cashRes) {
+        setCashSession(cashRes.status === 'fulfilled' ? cashRes.value : null);
+      }
       const failed = [repRes, invRes].find((r) => r.status === 'rejected');
       setHomeLoadError(failed?.status === 'rejected' ? describeLoadError(failed.reason) : null);
       setLoadingInventory(false);
       setLoadingReport(false);
+      setLoadingCashSession(false);
       setRefreshing(false);
     },
     []
@@ -95,6 +114,7 @@ export default function DashboardScreen() {
         inventoryApi.search(branchId, ''),
         reportsApi.getReportData(branchId, 'today'),
         productsApi.getCategories(branchId),
+        cashSessionApi.getTodaySession(branchId),
       ]),
     [branchId]
   );
@@ -103,8 +123,8 @@ export default function DashboardScreen() {
   useEffect(() => {
     if (!branchId) return;
     let cancelled = false;
-    fetchDashboard().then(([inv, rep, cat]) => {
-      if (!cancelled) applyDashboardResults(inv, rep, cat);
+    fetchDashboard().then(([inv, rep, cat, cash]) => {
+      if (!cancelled) applyDashboardResults(inv, rep, cat, cash);
     });
     return () => {
       cancelled = true;
@@ -122,8 +142,34 @@ export default function DashboardScreen() {
   const onRefresh = useCallback(() => {
     if (!branchId) return;
     setRefreshing(true);
-    fetchDashboard().then(([inv, rep, cat]) => applyDashboardResults(inv, rep, cat));
+    fetchDashboard().then(([inv, rep, cat, cash]) => applyDashboardResults(inv, rep, cat, cash));
   }, [branchId, fetchDashboard, applyDashboardResults]);
+
+  // Real-time live listener for cash_sessions updates from desktop POS
+  useEffect(() => {
+    if (!branchId) return;
+    const channel = supabase
+      .channel(`rt-cash-sessions-${branchId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cash_sessions',
+          filter: `shop_id=eq.${branchId}`,
+        },
+        () => {
+          cashSessionApi.getTodaySession(branchId).then((res) => {
+            setCashSession(res);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [branchId]);
 
   // Derived low stock and out of stock items
   const lowStockItems = useMemo(
@@ -267,7 +313,7 @@ export default function DashboardScreen() {
   };
 
   // ==========================================
-  // TAB 1: HOME TAB (Matches the user's design)
+  // TAB 1: HOME TAB (Modern Executive Redesign)
   // ==========================================
   const renderHomeTab = () => (
     <ScrollView
@@ -278,174 +324,374 @@ export default function DashboardScreen() {
         <RefreshControl
           refreshing={refreshing}
           onRefresh={onRefresh}
-          tintColor="#FFFFFF"
+          tintColor="#0D7F41"
           colors={['#0D7F41']}
         />
       }
     >
-      {/* Top Green Gradient Banner Header Card */}
-      <LinearGradient
-        colors={['#06572A', '#0D7F41', '#14964F']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0.85, y: 1 }}
-        style={styles.greenHeaderGradient}
-      >
+      {/* Ambient Top Glow for subtle luxury styling */}
+      <View style={styles.ambientTopGlow} pointerEvents="none" />
+
+      {/* Top White Brand & Status Header Card */}
+      <View style={styles.whiteHeaderCard}>
+        {/* Top Brand Bar & Live Status */}
         <View style={styles.headerTopRow}>
-          <View style={styles.headerDateAndGreeting}>
-            <Text style={styles.headerDateBadge}>{formattedDate}</Text>
-            <Text style={styles.headerGreetingText}>
-              {greeting}, {userName}
-            </Text>
+          <View style={styles.headerBrandCluster}>
+            <View style={styles.headerLogoCard}>
+              <Image
+                source={require('@/assets/images/bizznet-logo.png')}
+                style={styles.headerMiniLogo}
+                resizeMode="contain"
+              />
+            </View>
+            <View style={styles.headerBrandTextGroup}>
+              <Text style={styles.headerBrandTitle}>BizzNet</Text>
+              <View style={styles.liveStatusPill}>
+                <View style={styles.liveStatusDot} />
+                <Text style={styles.liveStatusText}>ONLINE TERMINAL</Text>
+              </View>
+            </View>
           </View>
-          <TouchableOpacity
-            style={styles.headerProfileSquircle}
-            onPress={() => setActiveTab('profile')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.headerProfileInitials}>{userInitials}</Text>
-          </TouchableOpacity>
+
+          <View style={styles.headerTopRightRow}>
+            {/* Real-time Notification Bell */}
+            <TouchableOpacity
+              style={styles.headerNotificationButton}
+              onPress={openNotificationModal}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="notifications-outline" size={20} color="#334155" />
+              {unreadCount > 0 && (
+                <View style={styles.headerBadge}>
+                  <Text style={styles.headerBadgeText}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Profile Avatar Button */}
+            <TouchableOpacity
+              style={styles.headerProfileSquircle}
+              onPress={() => setActiveTab('profile')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.headerProfileInitials}>{userInitials}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* Branch Pill (matching reference image) */}
+        {/* Dynamic Date & Greeting */}
+        <View style={styles.headerGreetingSection}>
+          <View style={styles.headerDateBadgeRow}>
+            <Ionicons name="calendar-outline" size={13} color="#0D7F41" />
+            <Text style={styles.headerDateBadge}>{formattedDate}</Text>
+          </View>
+          <Text style={styles.headerGreetingText}>
+            {greeting}
+          </Text>
+        </View>
+
+        {/* Operating Branch Card */}
         <TouchableOpacity
-          style={styles.headerBranchPill}
+          style={styles.headerBranchCard}
           onPress={handleSwitchBranch}
-          activeOpacity={0.75}
+          activeOpacity={0.85}
         >
-          <Ionicons name="business-outline" size={15} color="#FFFFFF" />
-          <Text style={styles.headerBranchText}>{branchDisplayName}</Text>
-          <Ionicons name="chevron-down" size={13} color="rgba(255, 255, 255, 0.85)" />
+          <View style={styles.headerBranchLeft}>
+            <View style={styles.headerBranchIconCircle}>
+              <Ionicons name="storefront" size={16} color="#0D7F41" />
+            </View>
+            <View style={styles.headerBranchTextCol}>
+              <Text style={styles.headerBranchOverline}>ACTIVE LOCATION</Text>
+              <Text style={styles.headerBranchName} numberOfLines={1}>
+                {branchDisplayName}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.headerBranchSwitchPill}>
+            <Text style={styles.headerBranchSwitchText}>Switch</Text>
+            <Ionicons name="swap-horizontal" size={14} color="#FFFFFF" />
+          </View>
         </TouchableOpacity>
-      </LinearGradient>
+      </View>
 
       {/* Main Home Content */}
       <View style={styles.homeBodyContent}>
         <LoadErrorBanner message={homeLoadError} onRetry={onRefresh} />
 
-        {/* Four Metric Cards: Today Sales, Order Revenue, Today Orders, Low Stock */}
-        <View style={styles.cardsGrid}>
-          <View style={styles.cardRow}>
-            {/* Card 1: Today Sales */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricIconCircle}>
-                <Ionicons name="trending-up" size={20} color="#059669" />
-              </View>
-              <Text style={styles.metricLabel}>Today Sales</Text>
-              {loadingReport ? (
-                <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
-              ) : (
-                <Text style={styles.metricValue}>{formatRs(reportStats?.totalSales ?? 0)}</Text>
-              )}
-              <View style={styles.metricFooterRow}>
-                <Ionicons
-                  name={reportStats?.salesTrendPositive === false ? 'arrow-down-circle' : 'arrow-up-circle'}
-                  size={12}
-                  color={reportStats?.salesTrendPositive === false ? '#DC2626' : '#16A34A'}
-                />
-                <Text
-                  style={[
-                    styles.metricFooterText,
-                    { color: reportStats?.salesTrendPositive === false ? '#DC2626' : '#16A34A' },
-                  ]}
-                >
-                  {reportStats?.salesTrend ?? '0%'} vs yesterday
-                </Text>
-              </View>
-            </View>
-
-            {/* Card 2: Order Revenue */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricIconCircle}>
-                <Ionicons name="wallet-outline" size={20} color="#059669" />
-              </View>
-              <Text style={styles.metricLabel}>Order Revenue</Text>
-              {loadingReport ? (
-                <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
-              ) : (
-                <Text style={styles.metricValue}>{formatRs(reportStats?.revenue ?? 0)}</Text>
-              )}
-              <View style={styles.metricFooterRow}>
-                <Ionicons name="shield-checkmark-outline" size={12} color="#059669" />
-                <Text style={[styles.metricFooterText, { color: '#059669' }]}>
-                  {reportStats?.profitMargin ?? 0}% margin
-                </Text>
-              </View>
-            </View>
+        {/* 1. Prominent Quick Actions Hub (Right at the top as large touch buttons) */}
+        <View style={styles.largeQuickHubSection}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionOverlineTitle}>QUICK ACTIONS</Text>
+            <Text style={styles.sectionSubtitle}>Instant shortcuts</Text>
           </View>
 
-          <View style={styles.cardRow}>
-            {/* Card 3: Today Orders */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricIconCircle}>
-                <Ionicons name="bag-handle-outline" size={20} color="#059669" />
-              </View>
-              <Text style={styles.metricLabel}>Today Orders</Text>
-              {loadingReport ? (
-                <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
-              ) : (
-                <Text style={styles.metricValue}>
-                  {(reportStats?.totalOrders ?? 0).toLocaleString()}
+          <View style={styles.largeQuickGrid}>
+            <View style={styles.largeQuickRow}>
+              {/* Sales Action Card */}
+              <TouchableOpacity
+                style={styles.largeActionCard}
+                onPress={() => setActiveTab('sales')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.largeActionTopRow}>
+                  <View style={[styles.largeActionIconBox, { backgroundColor: '#ECFDF5' }]}>
+                    <Ionicons name="cart" size={22} color="#059669" />
+                  </View>
+                  <View style={styles.largeActionArrowPill}>
+                    <Ionicons name="arrow-forward" size={13} color="#059669" />
+                  </View>
+                </View>
+                <Text style={styles.largeActionTitle}>Sales</Text>
+                <Text style={styles.largeActionSub}>POS & Orders</Text>
+              </TouchableOpacity>
+
+              {/* Inventory Action Card */}
+              <TouchableOpacity
+                style={styles.largeActionCard}
+                onPress={() => setActiveTab('stock')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.largeActionTopRow}>
+                  <View style={[styles.largeActionIconBox, { backgroundColor: '#EFF6FF' }]}>
+                    <Ionicons name="cube" size={22} color="#2563EB" />
+                  </View>
+                  {inventoryStats.low > 0 ? (
+                    <View style={styles.inventoryAlertPill}>
+                      <Text style={styles.inventoryAlertText}>{inventoryStats.low} Low</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.largeActionArrowPill}>
+                      <Ionicons name="arrow-forward" size={13} color="#2563EB" />
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.largeActionTitle}>Inventory</Text>
+                <Text
+                  style={[
+                    styles.largeActionSub,
+                    inventoryStats.low > 0 && { color: '#D97706', fontFamily: fonts.semiBold },
+                  ]}
+                >
+                  {inventoryStats.low > 0 ? `${inventoryStats.low} items low` : 'Manage stock'}
                 </Text>
-              )}
-              <View style={styles.metricFooterRow}>
-                <Ionicons name="pricetag-outline" size={12} color={colors.textMuted} />
-                <Text style={styles.metricFooterText}>
-                  Avg {formatRs(reportStats?.avgOrderValue ?? 0)}
-                </Text>
-              </View>
+              </TouchableOpacity>
             </View>
 
-            {/* Card 4: Low Stock */}
-            <TouchableOpacity
-              style={styles.metricCard}
-              onPress={() => {
-                setStockFilterType('low');
-                setActiveTab('stock');
-              }}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.metricIconCircle, { backgroundColor: '#FEF3C7' }]}>
-                <Ionicons name="warning-outline" size={20} color="#D97706" />
-              </View>
-              <Text style={styles.metricLabel}>Low Stock</Text>
-              {loadingInventory ? (
-                <ActivityIndicator size="small" color={colors.primary} style={styles.metricLoader} />
-              ) : (
-                <Text style={styles.metricValue}>{inventoryStats.low}</Text>
-              )}
-              <View style={styles.metricFooterRow}>
-                <Ionicons name="cube-outline" size={12} color="#D97706" />
-                <Text style={[styles.metricFooterText, { color: '#D97706' }]}>
-                  {inventoryStats.out} out of stock
-                </Text>
-              </View>
-            </TouchableOpacity>
+            <View style={styles.largeQuickRow}>
+              {/* Expenses Action Card */}
+              <TouchableOpacity
+                style={styles.largeActionCard}
+                onPress={() => setActiveTab('expenses')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.largeActionTopRow}>
+                  <View style={[styles.largeActionIconBox, { backgroundColor: '#FFFBEB' }]}>
+                    <Ionicons name="wallet" size={22} color="#D97706" />
+                  </View>
+                  <View style={styles.largeActionArrowPill}>
+                    <Ionicons name="arrow-forward" size={13} color="#D97706" />
+                  </View>
+                </View>
+                <Text style={styles.largeActionTitle}>Expenses</Text>
+                <Text style={styles.largeActionSub}>Track & add costs</Text>
+              </TouchableOpacity>
+
+              {/* Reports Action Card */}
+              <TouchableOpacity
+                style={styles.largeActionCard}
+                onPress={() => setActiveTab('reports')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.largeActionTopRow}>
+                  <View style={[styles.largeActionIconBox, { backgroundColor: '#FAF5FF' }]}>
+                    <Ionicons name="bar-chart" size={22} color="#7C3AED" />
+                  </View>
+                  <View style={styles.largeActionArrowPill}>
+                    <Ionicons name="arrow-forward" size={13} color="#7C3AED" />
+                  </View>
+                </View>
+                <Text style={styles.largeActionTitle}>Reports</Text>
+                <Text style={styles.largeActionSub}>Analytics & growth</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        {/* Today's Sales Overview */}
-        <SalesOverviewCard
-          title="Today's Sales Overview"
-          actionLabel="View all"
-          onActionPress={() => setActiveTab('sales')}
-          chartData={salesOverviewData}
-          total={reportStats?.totalSales ?? 0}
-          trendPercentage={reportStats?.salesTrend ?? '0%'}
-          trendPositive={reportStats?.salesTrendPositive !== false}
-          loading={loadingReport}
-          variant="line"
-          firstAxisStep={DAILY_VIEW_FIRST_STEP} // today: 0 / 10K / 20K / 40K / 80K
+        {/* 1. Executive Net Sales Hero Card */}
+        <LinearGradient
+          colors={['#043F20', '#08582C', '#0E733B']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.netSalesHeroCard}
+        >
+          {/* Top row: Label & Trend Pill */}
+          <View style={styles.heroTopRow}>
+            <View style={styles.heroLabelGroup}>
+              <View style={styles.heroSparkleCircle}>
+              </View>
+              <Text style={styles.heroOverline}>TODAY'S NET SALES</Text>
+            </View>
+
+            <View
+              style={[
+                styles.heroTrendPill,
+                reportStats?.salesTrendPositive === false && styles.heroTrendPillNegative,
+              ]}
+            >
+              <Ionicons
+                name={reportStats?.salesTrendPositive === false ? 'trending-down' : 'trending-up'}
+                size={13}
+                color={reportStats?.salesTrendPositive === false ? '#FCA5A5' : '#6EE7B7'}
+              />
+              <Text
+                style={[
+                  styles.heroTrendText,
+                  reportStats?.salesTrendPositive === false && styles.heroTrendTextNegative,
+                ]}
+              >
+                {reportStats?.salesTrend ?? '0%'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Large Hero Amount */}
+          <View style={styles.heroAmountRow}>
+            {loadingReport ? (
+              <ActivityIndicator size="small" color="#FFFFFF" style={styles.heroLoader} />
+            ) : (
+              <Text style={styles.heroAmountText}>{formatRs(reportStats?.totalSales ?? 0)}</Text>
+            )}
+          </View>
+
+          {/* Quick Metrics Glance Bar (Orders, Margin, Avg Ticket) */}
+          <View style={styles.heroGlanceBar}>
+            <View style={styles.heroGlanceItem}>
+              <Text style={styles.heroGlanceLabel}>ORDERS</Text>
+              <Text style={styles.heroGlanceValue}>
+                {(reportStats?.totalOrders ?? 0).toLocaleString()}
+              </Text>
+            </View>
+            <View style={styles.heroGlanceDivider} />
+            <View style={styles.heroGlanceItem}>
+              <Text style={styles.heroGlanceLabel}>MARGIN</Text>
+              <Text style={styles.heroGlanceValue}>{reportStats?.profitMargin ?? 0}%</Text>
+            </View>
+            <View style={styles.heroGlanceDivider} />
+            <View style={styles.heroGlanceItem}>
+              <Text style={styles.heroGlanceLabel}>AVG TICKET</Text>
+              <Text style={styles.heroGlanceValue}>
+                {formatRs(reportStats?.avgOrderValue ?? 0)}
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* 1.5 Cashier Till / Cash in Drawer Live Card */}
+        <CashDrawerCard
+          cashSession={cashSession}
+          cashSales={reportData?.paymentBreakdown.cash ?? 0}
+          cashExpenses={reportData?.stats.totalExpense ?? 0}
+          loading={loadingCashSession || loadingReport}
         />
 
-        {/* Top Selling Products */}
+        {/* 1.8 Stock & Inventory Health Special Card */}
+        <StockOverviewCard
+          totalProducts={inventoryStats.total}
+          lowStockCount={inventoryStats.low}
+          outOfStockCount={inventoryStats.out}
+          loading={loadingInventory}
+          onViewLowStock={() => {
+            setStockFilterType('low');
+            setActiveTab('stock');
+          }}
+          onViewAllStock={() => {
+            setStockFilterType('all');
+            setActiveTab('stock');
+          }}
+        />
+
+        {/* 1.9 Vital Signs Pair: Net Profit & Store Expenses */}
+        <View style={styles.vitalMetricsRow}>
+          {/* Card 1: Net Profit */}
+          <View style={styles.vitalCard}>
+            <View style={styles.vitalCardTop}>
+              <View style={[styles.vitalIconBadge, { backgroundColor: '#ECFDF5' }]}>
+                <Ionicons name="trending-up-outline" size={15} color="#059669" />
+              </View>
+              <Text style={styles.vitalLabel}>Net Profit</Text>
+            </View>
+            {loadingReport ? (
+              <ActivityIndicator size="small" color="#059669" style={styles.vitalLoader} />
+            ) : (
+              <Text style={[styles.vitalValue, { color: '#047857' }]}>
+                {formatRs(reportStats?.revenue ?? 0)}
+              </Text>
+            )}
+            <View style={styles.vitalFooterRow}>
+              <Ionicons name="shield-checkmark-outline" size={11} color="#059669" />
+              <Text style={[styles.vitalFooterText, { color: '#059669' }]}>
+                {reportStats?.profitMargin ?? 0}% margin
+              </Text>
+            </View>
+          </View>
+
+          {/* Card 2: Store Expenses */}
+          <TouchableOpacity
+            style={styles.vitalCard}
+            onPress={() => setActiveTab('expenses')}
+            activeOpacity={0.75}
+          >
+            <View style={styles.vitalCardTop}>
+              <View style={[styles.vitalIconBadge, { backgroundColor: '#FEF2F2' }]}>
+                <Ionicons name="receipt-outline" size={15} color="#DC2626" />
+              </View>
+              <Text style={styles.vitalLabel}>Store Expenses</Text>
+            </View>
+            {loadingReport ? (
+              <ActivityIndicator size="small" color="#DC2626" style={styles.vitalLoader} />
+            ) : (
+              <Text style={[styles.vitalValue, { color: '#B91C1C' }]}>
+                {formatRs(reportStats?.totalExpense ?? 0)}
+              </Text>
+            )}
+            <View style={styles.vitalFooterRow}>
+              <Text style={[styles.vitalFooterText, { color: '#DC2626' }]}>
+                View costs →
+              </Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* 2. Today's Sales Overview Chart (Placed below special cards) */}
+        <View style={styles.chartSectionWrapper}>
+          <SalesOverviewCard
+            title="Today's Sales Momentum"
+            actionLabel="View all"
+            onActionPress={() => setActiveTab('sales')}
+            chartData={salesOverviewData}
+            total={reportStats?.totalSales ?? 0}
+            trendPercentage={reportStats?.salesTrend ?? '0%'}
+            trendPositive={reportStats?.salesTrendPositive !== false}
+            loading={loadingReport}
+            variant="line"
+            firstAxisStep={DAILY_VIEW_FIRST_STEP}
+          />
+        </View>
+
+        {/* 3. Top Selling Products Leaderboard */}
         <View style={styles.topProductsSpacer}>
           <TopProductsCard
-            title="Top Selling Products"
+            title="Fast Moving Products"
             products={reportData?.topProducts ?? []}
             actionLabel="View report"
             onActionPress={() => setActiveTab('reports')}
           />
         </View>
+
+
       </View>
     </ScrollView>
   );
@@ -473,6 +719,9 @@ export default function DashboardScreen() {
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
     >
+      {/* Ambient Top Glow background style */}
+      <View style={styles.ambientTopGlow} pointerEvents="none" />
+
       <View style={styles.sectionHeaderRow}>
         <View>
           <Text style={styles.pageTitle}>Stock & Inventory</Text>
@@ -507,6 +756,28 @@ export default function DashboardScreen() {
         </View>
       </View>
 
+      {/* Supplier Stock Purchases Action Banner */}
+      <TouchableOpacity
+        style={styles.supplierPurchasesHeroBtn}
+        onPress={() => router.push('/supplier-purchases' as any)}
+        activeOpacity={0.85}
+      >
+        <View style={styles.supplierBtnLeft}>
+          <View style={styles.supplierBtnIconBox}>
+            <Ionicons name="cart" size={18} color="#059669" />
+          </View>
+          <View style={styles.supplierBtnTexts}>
+            <Text style={styles.supplierBtnTitle}>Supplier Stock Purchases</Text>
+            <Text style={styles.supplierBtnSub}>Cost spent buying stock from suppliers</Text>
+          </View>
+        </View>
+
+        <View style={styles.supplierBtnRight}>
+          <Text style={styles.supplierBtnAction}>View Costs</Text>
+          <Ionicons name="arrow-forward" size={14} color="#059669" />
+        </View>
+      </TouchableOpacity>
+
       {/* Search Bar & Stock Status Dropdown Filter */}
       <View style={styles.searchRow}>
         <View style={styles.stockSearchContainer}>
@@ -540,16 +811,16 @@ export default function DashboardScreen() {
               stockFilterType === 'out'
                 ? 'close-circle'
                 : stockFilterType === 'low'
-                ? 'warning'
-                : 'layers-outline'
+                  ? 'warning'
+                  : 'layers-outline'
             }
             size={14}
             color={
               stockFilterType === 'out'
                 ? '#DC2626'
                 : stockFilterType === 'low'
-                ? '#D97706'
-                : colors.primary
+                  ? '#D97706'
+                  : colors.primary
             }
           />
           <Text
@@ -563,8 +834,8 @@ export default function DashboardScreen() {
             {stockFilterType === 'out'
               ? 'Out Stock'
               : stockFilterType === 'low'
-              ? 'Low Stock'
-              : 'All Stock'}
+                ? 'Low Stock'
+                : 'All Stock'}
           </Text>
           <Ionicons
             name="chevron-down"
@@ -573,8 +844,8 @@ export default function DashboardScreen() {
               stockFilterType === 'out'
                 ? '#DC2626'
                 : stockFilterType === 'low'
-                ? '#D97706'
-                : colors.textSecondary
+                  ? '#D97706'
+                  : colors.textSecondary
             }
           />
         </TouchableOpacity>
@@ -819,7 +1090,7 @@ export default function DashboardScreen() {
   // ==========================================
   const renderProfileTab = () => {
     const singleInitial = currentUser?.name ? currentUser.name.trim()[0].toUpperCase() : 'N';
-    const userEmail = currentUser?.email || 'owner@sugarcrumb.lk';
+    const userEmail = currentUser?.email || 'owner@bizznet.lk';
 
     return (
       <ScrollView
@@ -827,6 +1098,9 @@ export default function DashboardScreen() {
         contentContainerStyle={styles.profileScrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Ambient Top Glow background style */}
+        <View style={styles.ambientTopGlow} pointerEvents="none" />
+
         {/* Header: Title & Subtitle */}
         <View style={styles.profileHeader}>
           <Text style={styles.profileMainTitle}>Profile</Text>
@@ -913,18 +1187,56 @@ export default function DashboardScreen() {
         {/* 3. Notifications Section */}
         <View style={styles.profileSectionHeader}>
           <Text style={styles.profileSectionTitle}>Notifications</Text>
+          <TouchableOpacity
+            style={styles.openHistoryButton}
+            onPress={openNotificationModal}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="notifications" size={13} color={colors.primary} />
+            <Text style={styles.openHistoryButtonText}>View History ({unreadCount})</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.profileCardGroup}>
-          {/* Low Stock Alerts */}
+          {/* New Order Alerts */}
           <View style={[styles.notificationRow, styles.shopRowDivider]}>
             <View style={styles.notificationInfo}>
-              <Text style={styles.notificationTitle}>Low stock alerts</Text>
-              <Text style={styles.notificationSubtitle}>Push when an item hits reorder level</Text>
+              <Text style={styles.notificationTitle}>New Order Alerts</Text>
+              <Text style={styles.notificationSubtitle}>Notification for every sale made</Text>
             </View>
             <Switch
-              value={lowStockAlerts}
-              onValueChange={setLowStockAlerts}
+              value={notificationSettings.orderAlerts}
+              onValueChange={(val) => updateNotificationSettings({ orderAlerts: val })}
+              trackColor={{ false: '#E2E8F0', true: colors.primary }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#E2E8F0"
+            />
+          </View>
+
+          {/* Stock Update Alerts */}
+          <View style={[styles.notificationRow, styles.shopRowDivider]}>
+            <View style={styles.notificationInfo}>
+              <Text style={styles.notificationTitle}>Stock Update Alerts</Text>
+              <Text style={styles.notificationSubtitle}>Notification for inventory stock changes</Text>
+            </View>
+            <Switch
+              value={notificationSettings.stockUpdateAlerts}
+              onValueChange={(val) => updateNotificationSettings({ stockUpdateAlerts: val })}
+              trackColor={{ false: '#E2E8F0', true: colors.primary }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#E2E8F0"
+            />
+          </View>
+
+          {/* Low Stock Warnings */}
+          <View style={[styles.notificationRow, styles.shopRowDivider]}>
+            <View style={styles.notificationInfo}>
+              <Text style={styles.notificationTitle}>Low Stock Warnings</Text>
+              <Text style={styles.notificationSubtitle}>Warning alert when item hits reorder level or 0</Text>
+            </View>
+            <Switch
+              value={notificationSettings.lowStockAlerts}
+              onValueChange={(val) => updateNotificationSettings({ lowStockAlerts: val })}
               trackColor={{ false: '#E2E8F0', true: colors.primary }}
               thumbColor="#FFFFFF"
               ios_backgroundColor="#E2E8F0"
@@ -934,12 +1246,12 @@ export default function DashboardScreen() {
           {/* Daily Closing Summary */}
           <View style={styles.notificationRow}>
             <View style={styles.notificationInfo}>
-              <Text style={styles.notificationTitle}>Daily closing summary</Text>
-              <Text style={styles.notificationSubtitle}>Income recap at 9:00 pm</Text>
+              <Text style={styles.notificationTitle}>Daily Sales Summary</Text>
+              <Text style={styles.notificationSubtitle}>Income recap sent every evening after 6:00 pm</Text>
             </View>
             <Switch
-              value={dailyClosingAlerts}
-              onValueChange={setDailyClosingAlerts}
+              value={notificationSettings.dailyClosingAlerts}
+              onValueChange={(val) => updateNotificationSettings({ dailyClosingAlerts: val })}
               trackColor={{ false: '#E2E8F0', true: colors.primary }}
               thumbColor="#FFFFFF"
               ios_backgroundColor="#E2E8F0"
@@ -956,6 +1268,20 @@ export default function DashboardScreen() {
           <Ionicons name="log-out-outline" size={18} color="#DC2626" />
           <Text style={styles.profileLogoutButtonText}>Log Out of Terminal</Text>
         </TouchableOpacity>
+
+        {/* 5. Brand Footer */}
+        <View style={styles.profileBrandFooter}>
+          <View style={styles.profileBrandLogoCard}>
+            <Image
+              source={require('@/assets/images/bizznet-logo.png')}
+              style={styles.profileBrandLogo}
+              resizeMode="contain"
+            />
+          </View>
+          <Text style={styles.profileBrandName}>BizzNet</Text>
+          <Text style={styles.profileBrandSubtitle}>Smart Business Analyzer & POS Terminal</Text>
+          <Text style={styles.profileBrandVersion}>v1.0.0 • Powered by Nexzt Solution</Text>
+        </View>
       </ScrollView>
     );
   };
@@ -963,6 +1289,8 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar style="dark" />
+      {/* Dynamic Ambient Background Style */}
+      <AppBackground />
       <View style={styles.container}>
         {/* Main Content Area based on Active Tab */}
         <View style={styles.contentArea}>
@@ -1096,9 +1424,6 @@ export default function DashboardScreen() {
   );
 }
 
-// Serif font family fallback for high-end editorial display
-const serifFont = Platform.select({ ios: 'Georgia', android: 'serif', default: 'serif' });
-
 const styles = StyleSheet.create({
   // Home Metric Cards
   cardsGrid: {
@@ -1133,13 +1458,13 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     fontSize: 13,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
     marginBottom: 4,
   },
   metricValue: {
     fontSize: 20,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
     letterSpacing: -0.3,
   },
@@ -1155,7 +1480,7 @@ const styles = StyleSheet.create({
   },
   metricFooterText: {
     fontSize: 11,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
   },
   topProductsSpacer: {
@@ -1174,161 +1499,505 @@ const styles = StyleSheet.create({
   },
   homeTabScroll: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: 'transparent',
   },
   homeScrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 14 : 10,
-    paddingBottom: 28,
+    paddingHorizontal: 18,
+    paddingTop: Platform.OS === 'android' ? 12 : 8,
+    paddingBottom: 32,
   },
-  greenHeaderGradient: {
-    borderRadius: 22,
+  ambientTopGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 180,
+    backgroundColor: '#ECFDF5',
+    opacity: 0.6,
+  },
+  whiteHeaderCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
     padding: 18,
     marginBottom: 16,
-    shadowColor: '#06572A',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
     elevation: 3,
   },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  headerDateAndGreeting: {
-    flex: 1,
-    paddingRight: 16,
-  },
-  headerDateBadge: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#A7F3D0',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-  headerGreetingText: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -0.4,
-  },
-  headerProfileSquircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.35)',
-    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    marginBottom: 16,
   },
-  headerProfileInitials: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-  headerBranchPill: {
+  headerBrandCluster: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255, 255, 255, 0.16)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    gap: 7,
-    marginTop: 14,
+    gap: 10,
   },
-  headerBranchText: {
+  headerBrandTextGroup: {
+    justifyContent: 'center',
+  },
+  headerBrandTitle: {
+    fontSize: 18,
+    fontFamily: fonts.extraBold,
+    color: '#0F172A',
+    letterSpacing: 0.2,
+  },
+  liveStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 8,
+    gap: 5,
+    marginTop: 2,
+    alignSelf: 'flex-start',
+  },
+  liveStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  liveStatusText: {
+    fontSize: 9,
+    fontFamily: fonts.bold,
+    color: '#047857',
+    letterSpacing: 0.8,
+  },
+  headerLogoCard: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  headerMiniLogo: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 11,
+  },
+  headerTopRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerNotificationButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  headerBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  headerBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontFamily: fonts.bold,
+  },
+  headerProfileSquircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1.5,
+    borderColor: '#A7F3D0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerProfileInitials: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: '#0D7F41',
+    letterSpacing: 0.5,
+  },
+  headerGreetingSection: {
+    marginBottom: 16,
+  },
+  headerDateBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  headerDateBadge: {
+    fontSize: 11.5,
+    fontFamily: fonts.semiBold,
+    color: '#059669',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  headerGreetingText: {
+    fontSize: 22,
+    fontFamily: fonts.bold,
+    color: '#0F172A',
+    letterSpacing: -0.3,
+  },
+  headerBranchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  headerBranchLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    marginRight: 8,
+  },
+  headerBranchIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#D1FAE5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerBranchTextCol: {
+    flex: 1,
+  },
+  headerBranchOverline: {
+    fontSize: 9.5,
+    fontFamily: fonts.bold,
+    color: '#64748B',
+    letterSpacing: 0.8,
+  },
+  headerBranchName: {
     fontSize: 13.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
+    color: '#0F172A',
+    marginTop: 1,
+  },
+  headerBranchSwitchPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#0D7F41',
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  headerBranchSwitchText: {
+    fontSize: 12,
+    fontFamily: fonts.semiBold,
     color: '#FFFFFF',
   },
+
+  // 1. Executive Net Sales Hero Card
+  netSalesHeroCard: {
+    borderRadius: 22,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#043A1D',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.25)',
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  heroLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  heroSparkleCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(52, 211, 153, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroOverline: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+    color: '#A7F3D0',
+    letterSpacing: 1,
+  },
+  heroTrendPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(5, 150, 105, 0.35)',
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.3)',
+  },
+  heroTrendPillNegative: {
+    backgroundColor: 'rgba(220, 38, 38, 0.25)',
+    borderColor: 'rgba(248, 113, 113, 0.3)',
+  },
+  heroTrendText: {
+    fontSize: 11.5,
+    fontFamily: fonts.bold,
+    color: '#6EE7B7',
+  },
+  heroTrendTextNegative: {
+    color: '#FCA5A5',
+  },
+  heroAmountRow: {
+    marginVertical: 4,
+  },
+  heroLoader: {
+    alignSelf: 'flex-start',
+    marginVertical: 8,
+  },
+  heroAmountText: {
+    fontSize: 30,
+    fontFamily: fonts.extraBold,
+    color: '#FFFFFF',
+    letterSpacing: -0.6,
+  },
+  heroGlanceBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0, 0, 0, 0.16)',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 12,
+  },
+  heroGlanceItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroGlanceLabel: {
+    fontSize: 9.5,
+    fontFamily: fonts.bold,
+    color: '#A7F3D0',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  heroGlanceValue: {
+    fontSize: 13.5,
+    fontFamily: fonts.bold,
+    color: '#FFFFFF',
+  },
+  heroGlanceDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+
+  // 1. Prominent Top Quick Actions
+  largeQuickHubSection: {
+    marginBottom: 20,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  sectionOverlineTitle: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: '#64748B',
+    letterSpacing: 0.8,
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: '#64748B',
+  },
+  largeQuickGrid: {
+    gap: 10,
+  },
+  largeQuickRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  largeActionCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
+    justifyContent: 'space-between',
+    minHeight: 96,
+  },
+  largeActionTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  largeActionIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  largeActionArrowPill: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inventoryAlertPill: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  inventoryAlertText: {
+    fontSize: 10,
+    fontFamily: fonts.bold,
+    color: '#D97706',
+  },
+  largeActionTitle: {
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: '#0F172A',
+    letterSpacing: -0.2,
+  },
+  largeActionSub: {
+    fontSize: 11.5,
+    fontFamily: fonts.regular,
+    color: '#64748B',
+    marginTop: 2,
+  },
+
+  // Vital Signs Pair Row
+  vitalMetricsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  vitalCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  vitalCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 6,
+  },
+  vitalIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vitalLabel: {
+    fontSize: 11.5,
+    fontFamily: fonts.semiBold,
+    color: '#64748B',
+  },
+  vitalValue: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    letterSpacing: -0.3,
+    marginVertical: 2,
+  },
+  vitalLoader: {
+    marginVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  vitalFooterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  vitalFooterText: {
+    fontSize: 10.5,
+    fontFamily: fonts.medium,
+  },
+  chartSectionWrapper: {
+    marginBottom: 6,
+  },
+
   homeBodyContent: {
     marginTop: 0,
   },
   tabScroll: {
     flex: 1,
+    backgroundColor: 'transparent',
   },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: Platform.OS === 'android' ? 16 : 8,
     paddingBottom: 24,
   },
-
-  // ----------------------------------------------------
-  // Header Section (Greeting & Avatar)
-  // ----------------------------------------------------
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 8,
-  },
-  headerTitles: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  greetingTitle: {
-    fontSize: 27,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    fontFamily: serifFont,
-    letterSpacing: -0.4,
-  },
-  branchSubtitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
-  },
-  branchSubtitleText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  avatarButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.avatarBg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#EBD8C4',
-  },
-  avatarText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.avatarText,
-    fontFamily: serifFont,
-  },
-
-  // ----------------------------------------------------
-  // Hero Card (Today's Income)
-  // ----------------------------------------------------
-
-  // ----------------------------------------------------
-  // Two Stat Cards (Orders Today & Avg Order)
-  // ----------------------------------------------------
-
-  // ----------------------------------------------------
-  // Alert Reorder Card
-  // ----------------------------------------------------
-
-  // ----------------------------------------------------
-  // "Jump to" Section
-  // ----------------------------------------------------
 
   // ----------------------------------------------------
   // Sales Tab Styles
@@ -1342,11 +2011,12 @@ const styles = StyleSheet.create({
   },
   pageTitle: {
     fontSize: 24,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   pageSubtitle: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: colors.textSecondary,
     marginTop: 2,
   },
@@ -1377,14 +2047,73 @@ const styles = StyleSheet.create({
   },
   stockStatValue: {
     fontSize: 22,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     marginBottom: 4,
   },
   stockStatLabel: {
     fontSize: 11.5,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
+  },
+  supplierPurchasesHeroBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  supplierBtnLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  supplierBtnIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  supplierBtnTexts: {
+    flex: 1,
+  },
+  supplierBtnTitle: {
+    fontSize: 13.5,
+    fontFamily: fonts.bold,
+    color: '#0F172A',
+  },
+  supplierBtnSub: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  supplierBtnRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  supplierBtnAction: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: '#059669',
   },
   categoryFilterContainer: {
     marginBottom: 16,
@@ -1404,12 +2133,12 @@ const styles = StyleSheet.create({
   },
   categoryPillText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textSecondary,
   },
   categoryPillTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   searchRow: {
     flexDirection: 'row',
@@ -1432,6 +2161,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     fontSize: 14,
+    fontFamily: fonts.regular,
     color: colors.textPrimary,
   },
   stockFilterBtn: {
@@ -1455,7 +2185,7 @@ const styles = StyleSheet.create({
   },
   stockFilterBtnText: {
     fontSize: 12.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textPrimary,
   },
   stockFilterBtnTextLow: {
@@ -1494,7 +2224,7 @@ const styles = StyleSheet.create({
   },
   filterMenuTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
   },
   filterMenuItem: {
@@ -1526,14 +2256,15 @@ const styles = StyleSheet.create({
   },
   filterMenuLabel: {
     fontSize: 13.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#1E293B',
   },
   filterMenuLabelActive: {
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   filterMenuSub: {
     fontSize: 11,
+    fontFamily: fonts.regular,
     color: '#64748B',
     marginTop: 1,
   },
@@ -1549,7 +2280,7 @@ const styles = StyleSheet.create({
   },
   filterCountText: {
     fontSize: 11.5,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   stockQtyPillOut: {
     backgroundColor: '#FEE2E2',
@@ -1577,7 +2308,7 @@ const styles = StyleSheet.create({
   },
   stockItemName: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.semiBold,
     color: colors.textPrimary,
   },
   codeRow: {
@@ -1587,8 +2318,8 @@ const styles = StyleSheet.create({
   },
   stockItemCode: {
     fontSize: 12,
+    fontFamily: fonts.medium,
     color: colors.textMuted,
-    fontWeight: '600',
   },
   lowStockTag: {
     flexDirection: 'row',
@@ -1601,7 +2332,7 @@ const styles = StyleSheet.create({
   },
   lowStockTagText: {
     fontSize: 10,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.dangerText,
   },
   stockQtyPill: {
@@ -1617,7 +2348,7 @@ const styles = StyleSheet.create({
   },
   stockQtyNum: {
     fontSize: 16,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: colors.primaryText,
   },
   stockQtyNumLow: {
@@ -1625,17 +2356,16 @@ const styles = StyleSheet.create({
   },
   stockQtyUnit: {
     fontSize: 10,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.primaryText,
   },
-
 
   // ----------------------------------------------------
   // Profile Tab Styles (Matching uploaded design & theme)
   // ----------------------------------------------------
   profileTabScroll: {
     flex: 1,
-    backgroundColor: '#F9FBF9',
+    backgroundColor: 'transparent',
   },
   profileScrollContent: {
     paddingHorizontal: 20,
@@ -1647,11 +2377,12 @@ const styles = StyleSheet.create({
   },
   profileMainTitle: {
     fontSize: 24,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   profileSubtitle: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: colors.textSecondary,
     marginTop: 2,
   },
@@ -1681,9 +2412,8 @@ const styles = StyleSheet.create({
   },
   profileAvatarLetter: {
     fontSize: 24,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0D7F41',
-    fontFamily: serifFont,
   },
   profileUserInfo: {
     marginLeft: 16,
@@ -1691,11 +2421,12 @@ const styles = StyleSheet.create({
   },
   profileUserName: {
     fontSize: 18,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#18181B',
   },
   profileUserEmail: {
     fontSize: 14,
+    fontFamily: fonts.regular,
     color: '#71717A',
     marginTop: 3,
   },
@@ -1703,9 +2434,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   profileSectionTitle: {
-    fontFamily: serifFont,
-    fontSize: 22,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
+    fontSize: 20,
     color: '#18181B',
     letterSpacing: -0.3,
   },
@@ -1732,6 +2462,7 @@ const styles = StyleSheet.create({
   },
   profileLoadingText: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: '#71717A',
   },
   shopRow: {
@@ -1750,11 +2481,12 @@ const styles = StyleSheet.create({
   },
   shopName: {
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#18181B',
   },
   shopCode: {
     fontSize: 13,
+    fontFamily: fonts.medium,
     color: '#71717A',
     marginTop: 3,
   },
@@ -1765,8 +2497,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   activeBadgeText: {
-    fontSize: 12, 
-    fontWeight: '700',
+    fontSize: 12,
+    fontFamily: fonts.bold,
     color: '#0D7F41',
   },
   switchBranchButton: {
@@ -1781,7 +2513,7 @@ const styles = StyleSheet.create({
   },
   switchBranchButtonText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.primary,
   },
   notificationRow: {
@@ -1796,13 +2528,30 @@ const styles = StyleSheet.create({
   },
   notificationTitle: {
     fontSize: 15,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#18181B',
   },
   notificationSubtitle: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: '#71717A',
     marginTop: 2,
+  },
+  openHistoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  openHistoryButtonText: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: colors.primary,
   },
   profileLogoutButtonModern: {
     flexDirection: 'row',
@@ -1819,7 +2568,7 @@ const styles = StyleSheet.create({
   },
   profileLogoutButtonText: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#DC2626',
   },
 
@@ -1856,14 +2605,15 @@ const styles = StyleSheet.create({
   tabLabel: {
     fontSize: 10.5,
     letterSpacing: -0.3,
+    fontFamily: fonts.medium,
   },
   tabLabelActive: {
     color: colors.tabActiveText,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
   },
   tabLabelInactive: {
     color: colors.tabInactiveText,
-    fontWeight: '600',
+    fontFamily: fonts.medium,
   },
 
   // ----------------------------------------------------
@@ -1877,7 +2627,7 @@ const styles = StyleSheet.create({
   loadingText: {
     color: colors.textSecondary,
     fontSize: 14,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   emptyContainer: {
     paddingVertical: 48,
@@ -1895,13 +2645,66 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   emptySubtitle: {
     fontSize: 13,
+    fontFamily: fonts.regular,
     color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 4,
+  },
+
+  // ----------------------------------------------------
+  // Profile Brand Footer
+  // ----------------------------------------------------
+  profileBrandFooter: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  profileBrandLogoCard: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  profileBrandLogo: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+  },
+  profileBrandName: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    letterSpacing: -0.2,
+  },
+  profileBrandSubtitle: {
+    fontSize: 12.5,
+    color: colors.textSecondary,
+    marginTop: 2,
+    fontFamily: fonts.medium,
+  },
+  profileBrandVersion: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 6,
+    fontFamily: fonts.semiBold,
+    letterSpacing: 0.2,
   },
 });

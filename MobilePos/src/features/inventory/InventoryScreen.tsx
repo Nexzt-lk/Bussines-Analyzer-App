@@ -11,12 +11,15 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { inventoryApi, InventoryStats, InventoryStockFilter } from './inventoryApi';
 import { productsApi } from '../products/productsApi';
 import { useBranch } from '../branches/BranchContext';
 import { useDebouncedValue } from '@/hooks/Usedebouncedvalue ';
 import { colors } from '@/constants/colors';
+import { fonts } from '@/constants/fonts';
 import LoadErrorBanner, { describeLoadError } from '@/components/LoadErrorBanner';
+import AppBackground from '@/components/AppBackground';
 import type { InventoryRow, Category } from '@/lib/types';
 
 const InventoryItem = memo(function InventoryItem({ item }: { item: InventoryRow }) {
@@ -48,6 +51,7 @@ const InventoryItem = memo(function InventoryItem({ item }: { item: InventoryRow
 });
 
 export default function InventoryScreen() {
+  const router = useRouter();
   const { currentBranch } = useBranch();
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebouncedValue(searchInput, 300);
@@ -104,6 +108,9 @@ export default function InventoryScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Dynamic Ambient Background Style */}
+      <AppBackground />
+
       {/* 1. Summary Cards Top of Search Bar (Total Products, Low Stock, Out of Stock) */}
       <View style={styles.statsRow}>
         {/* Total Products Card */}
@@ -130,6 +137,28 @@ export default function InventoryScreen() {
           <Text style={styles.statLabel}>Out of Stock</Text>
         </View>
       </View>
+
+      {/* 1.5. Supplier Purchases Action Button Card */}
+      <TouchableOpacity
+        style={styles.supplierPurchasesBtn}
+        onPress={() => router.push('/supplier-purchases')}
+        activeOpacity={0.8}
+      >
+        <View style={styles.supplierBtnLeft}>
+          <View style={styles.supplierBtnIconBox}>
+            <Ionicons name="cart" size={17} color="#059669" />
+          </View>
+          <View style={styles.supplierBtnTexts}>
+            <Text style={styles.supplierBtnTitle}>Supplier Stock Purchases</Text>
+            <Text style={styles.supplierBtnSub}>View procurement amount & supplier costs</Text>
+          </View>
+        </View>
+
+        <View style={styles.supplierBtnRight}>
+          <Text style={styles.supplierBtnAction}>View</Text>
+          <Ionicons name="arrow-forward" size={13} color="#059669" />
+        </View>
+      </TouchableOpacity>
 
       {/* 2. Search Input Bar & Stock Status Filter Dropdown */}
       <View style={styles.searchRow}>
@@ -390,7 +419,7 @@ export default function InventoryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.background,
     paddingHorizontal: 16,
     paddingTop: 16,
   },
@@ -417,14 +446,73 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 22,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     marginBottom: 4,
   },
   statLabel: {
     fontSize: 11.5,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: '#64748B',
     textAlign: 'center',
+  },
+  supplierPurchasesBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+    shadowColor: '#059669',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  supplierBtnLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  supplierBtnIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  supplierBtnTexts: {
+    flex: 1,
+  },
+  supplierBtnTitle: {
+    fontSize: 13.5,
+    fontFamily: fonts.bold,
+    color: '#0F172A',
+  },
+  supplierBtnSub: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  supplierBtnRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
+  supplierBtnAction: {
+    fontSize: 11.5,
+    fontFamily: fonts.bold,
+    color: '#059669',
   },
   searchRow: {
     flexDirection: 'row',
@@ -447,6 +535,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     color: '#0F172A',
     fontSize: 14,
+    fontFamily: fonts.medium,
   },
   stockFilterBtn: {
     flexDirection: 'row',
@@ -469,7 +558,7 @@ const styles = StyleSheet.create({
   },
   stockFilterBtnText: {
     fontSize: 12.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#0F172A',
   },
   stockFilterBtnTextLow: {
@@ -508,7 +597,7 @@ const styles = StyleSheet.create({
   },
   filterMenuTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     color: '#0F172A',
   },
   filterMenuItem: {
@@ -540,14 +629,15 @@ const styles = StyleSheet.create({
   },
   filterMenuLabel: {
     fontSize: 13.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: '#1E293B',
   },
   filterMenuLabelActive: {
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   filterMenuSub: {
     fontSize: 11,
+    fontFamily: fonts.regular,
     color: '#64748B',
     marginTop: 1,
   },
@@ -563,7 +653,7 @@ const styles = StyleSheet.create({
   },
   filterCountText: {
     fontSize: 11.5,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
   categoryFilterContainer: {
     marginBottom: 14,
@@ -583,11 +673,11 @@ const styles = StyleSheet.create({
   },
   categoryPillText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: colors.textSecondary,
   },
   categoryPillTextActive: {
     color: '#FFFFFF',
-    fontWeight: '700',
+    fontFamily: fonts.bold,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,22 +10,25 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Path, Rect } from 'react-native-svg';
 import { useAuth } from './AuthContext';
 import { LoginLockedError } from './authApi';
 import { useBranch } from '../branches/BranchContext';
+import { storage } from '@/lib/storage';
+import { fonts } from '@/constants/fonts';
+import AppBackground from '@/components/AppBackground';
 
 // Color Palette defined in Design System
 const BRAND = {
   primary: '#16A34A',
   primaryDark: '#15803D',
   lightGreen: '#DCFCE7',
-  background: '#F8FAF9',
+  background: '#F8FAFC',
   white: '#FFFFFF',
   mainText: '#17201A',
   secondaryText: '#6B7280',
@@ -36,67 +39,6 @@ const BRAND = {
   dangerBorder: '#FECACA',
   dangerText: '#EF4444',
 };
-
-// Custom SVG Cake Logo matching the reference design
-function CakeLogoIcon({ size = 30, color = '#FFFFFF' }: { size?: number; color?: string }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      {/* Candle flame */}
-      <Path
-        d="M12 2.2C12 2.2 12.8 3.2 12.8 3.9C12.8 4.3 12.4 4.7 12 4.7C11.6 4.7 11.2 4.3 11.2 3.9C11.2 3.2 12 2.2 12 2.2Z"
-        fill={color}
-      />
-      {/* Candle stick */}
-      <Path
-        d="M12 4.7V6.8"
-        stroke={color}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      {/* Top Tier Body */}
-      <Rect
-        x="6.5"
-        y="6.8"
-        width="11"
-        height="5.2"
-        rx="1.5"
-        stroke={color}
-        strokeWidth="1.8"
-      />
-      {/* Top tier icing drip line */}
-      <Path
-        d="M6.5 9.4C7.3 10.2 8.3 10.2 9.1 9.4C9.9 10.2 10.9 10.2 11.7 9.4C12.5 10.2 13.5 10.2 14.3 9.4C15.1 10.2 16.1 10.2 16.9 9.4"
-        stroke={color}
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      {/* Bottom Tier Body */}
-      <Rect
-        x="4"
-        y="12"
-        width="16"
-        height="6.2"
-        rx="2"
-        stroke={color}
-        strokeWidth="1.8"
-      />
-      {/* Bottom tier icing drip line */}
-      <Path
-        d="M4 15C5 16 6.3 16 7.3 15C8.3 16 9.6 16 10.6 15C11.6 16 12.9 16 13.9 15C14.9 16 16.2 16 17.2 15C18.2 16 19.3 15.6 20 15"
-        stroke={color}
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
-      {/* Bottom plate / stand */}
-      <Path
-        d="M2.5 20.8H21.5"
-        stroke={color}
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
-}
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -110,6 +52,15 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [identifierFocused, setIdentifierFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
+
+  // Pre-fill previously used email if available
+  useEffect(() => {
+    storage.getUser().then((saved) => {
+      if (saved?.email) {
+        setIdentifier(saved.email);
+      }
+    });
+  }, []);
 
   // References
   const passwordInputRef = useRef<TextInput>(null);
@@ -176,9 +127,8 @@ export default function LoginScreen() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
 
-      {/* Subtle organic green background shapes matching reference */}
-      <View style={styles.bgBlobTopRight} pointerEvents="none" />
-      <View style={styles.bgBlobBottomLeft} pointerEvents="none" />
+      {/* Dynamic Ambient Background Style */}
+      <AppBackground />
 
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
@@ -190,22 +140,26 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.contentCard}>
-            {/* Top Brand Cake Logo in Squircle Card */}
-            <View style={styles.logoSquircle}>
-              <CakeLogoIcon size={32} color="#FFFFFF" />
+            {/* Top Brand Logo Card */}
+            <View style={styles.logoCard}>
+              <Image
+                source={require('@/assets/images/bizznet-logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
             </View>
 
             {/* Overline Brand Tag */}
-            <Text style={styles.brandOverline}>SWEET DELIGHT</Text>
+            <Text style={styles.brandOverline}>BIZZNET</Text>
 
             {/* Main Title Heading */}
             <Text style={styles.titleHeading}>
-              {'Welcome \nBusiness Analyzer'}
+              {'Welcome to\nBizzNet'}
             </Text>
 
             {/* Subtitle */}
             <Text style={styles.subtitle}>
-              Manage your business at a glance
+              Smart Business Analyzer & POS Terminal
             </Text>
 
             {/* Error Message with Animated Shake */}
@@ -240,7 +194,7 @@ export default function LoginScreen() {
                   />
                   <TextInput
                     style={styles.textInput}
-                    placeholder="owner@sweetdelight.lk"
+                    placeholder="owner@bizznet.lk"
                     placeholderTextColor={BRAND.iconMuted}
                     value={identifier}
                     onChangeText={(val) => {
@@ -412,26 +366,34 @@ const styles = StyleSheet.create({
     paddingTop: 24,
   },
 
-  // Cake Logo Squircle
-  logoSquircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: BRAND.primary,
+  // BizzNet Brand Logo Card
+  logoCard: {
+    width: 76,
+    height: 76,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 26,
-    shadowColor: BRAND.primary,
+    marginBottom: 20,
+    shadowColor: '#059669',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.28,
-    shadowRadius: 14,
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
     elevation: 6,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  logoImage: {
+    width: 68,
+    height: 68,
+    borderRadius: 18,
   },
 
   // Typography
   brandOverline: {
     fontSize: 12,
-    fontWeight: '800',
+    fontFamily: fonts.bold,
     color: BRAND.primary,
     letterSpacing: 1.4,
     textTransform: 'uppercase',
@@ -439,7 +401,7 @@ const styles = StyleSheet.create({
   },
   titleHeading: {
     fontSize: 32,
-    fontWeight: '800',
+    fontFamily: fonts.extraBold,
     color: BRAND.mainText,
     letterSpacing: -0.6,
     lineHeight: 38,
@@ -448,7 +410,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     color: BRAND.secondaryText,
-    fontWeight: '400',
+    fontFamily: fonts.regular,
     marginBottom: 32,
   },
 
@@ -469,7 +431,7 @@ const styles = StyleSheet.create({
     flex: 1,
     color: BRAND.dangerText,
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
   },
 
   // Form
@@ -481,7 +443,7 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 13.5,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
     color: BRAND.mainText,
   },
   inputContainer: {
@@ -512,7 +474,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     color: BRAND.mainText,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
   clearBtn: {
     padding: 4,
@@ -552,7 +514,7 @@ const styles = StyleSheet.create({
   signInButtonText: {
     color: BRAND.white,
     fontSize: 16,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
     letterSpacing: 0.2,
   },
   btnArrowIcon: {
@@ -571,7 +533,7 @@ const styles = StyleSheet.create({
   secureAccessText: {
     fontSize: 12,
     color: BRAND.iconMuted,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
 
   // Footer Branding
@@ -583,7 +545,7 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
     color: BRAND.iconMuted,
     letterSpacing: 0.4,
     textTransform: 'lowercase',

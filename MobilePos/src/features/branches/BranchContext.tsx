@@ -12,17 +12,7 @@ const BranchContext = createContext<BranchContextValue | null>(null);
 
 export function BranchProvider({ children }: { children: ReactNode }) {
   const [currentBranch, setCurrentBranch] = useState<StoredBranch | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // Remembers the last-selected branch across app restarts — avoids making
-  // the owner re-pick their branch every single time they open the app.
-  useEffect(() => {
-    storage
-      .getBranch()
-      .then(setCurrentBranch)
-      .catch(() => setCurrentBranch(null))
-      .finally(() => setLoading(false));
-  }, []);
+  const [loading, setLoading] = useState(false);
 
   const selectBranch = useCallback(async (branch: StoredBranch) => {
     await storage.setBranch(branch);
