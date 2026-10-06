@@ -759,7 +759,7 @@ export default function DashboardScreen() {
       {/* Supplier Stock Purchases Action Banner */}
       <TouchableOpacity
         style={styles.supplierPurchasesHeroBtn}
-        onPress={() => router.push('/supplier-purchases')}
+        onPress={() => router.push('/supplier-purchases' as any)}
         activeOpacity={0.85}
       >
         <View style={styles.supplierBtnLeft}>
