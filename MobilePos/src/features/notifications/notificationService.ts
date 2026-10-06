@@ -35,10 +35,12 @@ function getNotifications(): typeof import('expo-notifications') | null {
     const mod = require('expo-notifications');
     mod.setNotificationHandler({
       handleNotification: async () => ({
+        shouldShowAlert: true,
         shouldShowBanner: true,
         shouldShowList: true,
         shouldPlaySound: true,
         shouldSetBadge: true,
+        priority: mod.AndroidNotificationPriority?.MAX ?? 'max',
       }),
     });
     _cachedNotifications = mod;
@@ -73,43 +75,79 @@ export const notificationService = {
       }
 
       if (Platform.OS === 'android') {
-        // Channel for Orders
+        // Channel for Orders (MAX importance -> Heads-up popup banner + sound + lockscreen)
         await Notifications.setNotificationChannelAsync('orders', {
-          name: 'Orders',
-          description: 'Notifications for every order placed or completed',
+          name: 'Orders & Sales',
+          description: 'Instant popup alerts and sound for new or completed orders',
           importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#0D7F41',
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
           sound: 'default',
+          enableVibrate: true,
+          vibrationPattern: [0, 250, 250, 250],
+          enableLights: true,
+          lightColor: '#0D7F41',
+          showBadge: true,
+          bypassDnd: true,
+          audioAttributes: {
+            usage: Notifications.AndroidAudioUsage.NOTIFICATION,
+            contentType: Notifications.AndroidAudioContentType.SONIFICATION,
+          },
         });
 
-        // Channel for Low Stock Warnings
+        // Channel for Low Stock Warnings (High urgency pop-up + sound)
         await Notifications.setNotificationChannelAsync('low_stock', {
-          name: 'Low Stock Warnings',
-          description: 'Warnings when products hit low stock or go out of stock',
+          name: 'Low Stock & Depletion Warnings',
+          description: 'Urgent alerts when items reach reorder levels or go out of stock',
           importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 500, 200, 500],
-          lightColor: '#DC2626',
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
           sound: 'default',
+          enableVibrate: true,
+          vibrationPattern: [0, 400, 200, 400],
+          enableLights: true,
+          lightColor: '#DC2626',
+          showBadge: true,
+          bypassDnd: true,
+          audioAttributes: {
+            usage: Notifications.AndroidAudioUsage.NOTIFICATION,
+            contentType: Notifications.AndroidAudioContentType.SONIFICATION,
+          },
         });
 
         // Channel for Stock Updates
         await Notifications.setNotificationChannelAsync('stock_updates', {
-          name: 'Stock Updates',
-          description: 'Notifications for general stock adjustments',
+          name: 'Stock Movements & Updates',
+          description: 'Notifications for general stock adjustments and restocks',
           importance: Notifications.AndroidImportance.HIGH,
-          vibrationPattern: [0, 200, 200, 200],
-          lightColor: '#2563EB',
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
           sound: 'default',
+          enableVibrate: true,
+          vibrationPattern: [0, 200, 200, 200],
+          enableLights: true,
+          lightColor: '#2563EB',
+          showBadge: true,
+          audioAttributes: {
+            usage: Notifications.AndroidAudioUsage.NOTIFICATION,
+            contentType: Notifications.AndroidAudioContentType.SONIFICATION,
+          },
         });
 
         // Channel for 6:00 PM Daily Sales Summary
         await Notifications.setNotificationChannelAsync('daily_summary', {
-          name: 'Daily Sales Summary',
-          description: 'Daily closing sales recap after 6:00 PM',
-          importance: Notifications.AndroidImportance.HIGH,
-          lightColor: '#10B981',
+          name: 'Daily 6:00 PM Sales Summary',
+          description: 'Daily evening business performance summary',
+          importance: Notifications.AndroidImportance.MAX,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
           sound: 'default',
+          enableVibrate: true,
+          vibrationPattern: [0, 300, 200, 300],
+          enableLights: true,
+          lightColor: '#0D7F41',
+          showBadge: true,
+          bypassDnd: true,
+          audioAttributes: {
+            usage: Notifications.AndroidAudioUsage.NOTIFICATION,
+            contentType: Notifications.AndroidAudioContentType.SONIFICATION,
+          },
         });
       }
 
@@ -143,11 +181,14 @@ export const notificationService = {
           body: "It's 6:00 PM! Check today's sales summary and performance metrics.",
           data: { type: 'daily_summary' },
           sound: 'default',
+          priority: Notifications.AndroidNotificationPriority?.MAX ?? 'max',
+          color: '#0D7F41',
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DAILY,
           hour: 18,
           minute: 0,
+          channelId: 'daily_summary',
         },
       });
     } catch (e) {
@@ -186,11 +227,16 @@ export const notificationService = {
     try {
       const Notifications = getNotifications();
       if (Notifications) {
+        const targetChannelId = params.channelId || 'orders';
         await Notifications.scheduleNotificationAsync({
           content: {
             title: params.title,
             body: params.body,
             sound: 'default',
+            priority: Notifications.AndroidNotificationPriority?.MAX ?? 'max',
+            vibrate: [0, 250, 250, 250],
+            color: '#0D7F41',
+            autoDismiss: true,
             data: {
               id: notification.id,
               category: params.category,
@@ -198,7 +244,7 @@ export const notificationService = {
               ...params.data,
             },
           },
-          trigger: null, // Send immediately
+          trigger: Platform.OS === 'android' ? { channelId: targetChannelId } : null,
         });
       }
     } catch (e) {
@@ -213,7 +259,7 @@ export const notificationService = {
    */
   getProductInfo: async (
     productId: string
-  ): Promise<{ name: string; itemCode: string; unit: string } | null> => {
+  ): Promise<{ name: string; itemCode: string; unit: string; shopId?: string } | null> => {
     if (!productId) return null;
     if (productCache.has(productId)) {
       return productCache.get(productId)!;
@@ -222,7 +268,7 @@ export const notificationService = {
     try {
       const { data, error } = await supabase
         .from('products')
-        .select('name, item_code, unit')
+        .select('name, item_code, unit, shop_id')
         .eq('id', productId)
         .maybeSingle();
 
@@ -232,6 +278,7 @@ export const notificationService = {
         name: data.name || 'Unknown Product',
         itemCode: data.item_code || '',
         unit: data.unit || 'pcs',
+        shopId: data.shop_id || '',
       };
       productCache.set(productId, info);
       return info;

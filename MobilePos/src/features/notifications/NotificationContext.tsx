@@ -110,9 +110,67 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return () => clearInterval(interval);
   }, [branchId, showToast]);
 
-  // Real-time Supabase listeners for Orders and Inventory
+  // Track seen order IDs to avoid duplicate alerts and prevent spam on app open
+  const seenOrderIdsRef = useRef<Set<string>>(new Set());
+  const isInitialLoadDoneRef = useRef<boolean>(false);
+
+  // Real-time Supabase listeners for Orders and Inventory with fallback poller
   useEffect(() => {
     if (!branchId) return;
+
+    seenOrderIdsRef.current.clear();
+    isInitialLoadDoneRef.current = false;
+
+    // Pre-populate with existing recent orders so already completed orders don't spam on app launch
+    supabase
+      .from('orders')
+      .select('id')
+      .eq('shop_id', branchId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data }) => {
+        if (data) {
+          data.forEach((o) => seenOrderIdsRef.current.add(o.id));
+        }
+        isInitialLoadDoneRef.current = true;
+      });
+
+    const processOrder = async (orderData: {
+      id?: string;
+      order_no?: string | null;
+      total_amount?: number | string | null;
+      cashier_name?: string | null;
+      status?: string | null;
+      shop_id?: string | null;
+    }) => {
+      if (!orderData?.id) return;
+      if (orderData.shop_id && orderData.shop_id !== branchId) return;
+      if (seenOrderIdsRef.current.has(orderData.id)) return;
+      seenOrderIdsRef.current.add(orderData.id);
+
+      if (!settingsRef.current.orderAlerts) return;
+
+      const orderNo = orderData.order_no || 'POS Order';
+      const amount = Math.round(Number(orderData.total_amount ?? 0));
+      const cashier = orderData.cashier_name || 'Terminal';
+
+      const notif = await notificationService.dispatchNotification({
+        category: 'order',
+        severity: 'success',
+        title: `🛒 New Order #${orderNo}`,
+        body: `Rs. ${amount.toLocaleString()} received • Cashier: ${cashier}`,
+        branchId,
+        channelId: 'orders',
+        data: {
+          orderId: orderData.id,
+          orderNo,
+          amount,
+        },
+      });
+
+      setNotifications((prev) => [notif, ...prev]);
+      showToast(notif);
+    };
 
     // 1. Orders Realtime Channel
     const ordersChannel = supabase
@@ -123,52 +181,56 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           event: '*',
           schema: 'public',
           table: 'orders',
-          filter: `shop_id=eq.${branchId}`,
         },
         async (payload) => {
-          if (!settingsRef.current.orderAlerts) return;
-
-          // Process new orders or newly completed orders
           const newOrder = payload.new as {
             id?: string;
             order_no?: string;
             total_amount?: number | string;
             cashier_name?: string;
             status?: string;
+            shop_id?: string;
           };
 
           if (!newOrder || !newOrder.id) return;
+          if (newOrder.shop_id && newOrder.shop_id !== branchId) return;
 
-          // For UPDATE event, only notify if newly transitioned or relevant
+          // For UPDATE event, only notify if status transitioned to completed
           if (payload.eventType === 'UPDATE' && newOrder.status !== 'completed') {
             return;
           }
 
-          const orderNo = newOrder.order_no || 'POS Order';
-          const amount = Math.round(Number(newOrder.total_amount ?? 0));
-          const cashier = newOrder.cashier_name || 'Terminal';
-
-          const notif = await notificationService.dispatchNotification({
-            category: 'order',
-            severity: 'success',
-            title: `🛒 New Order #${orderNo}`,
-            body: `Rs. ${amount.toLocaleString()} received • Cashier: ${cashier}`,
-            branchId,
-            channelId: 'orders',
-            data: {
-              orderId: newOrder.id,
-              orderNo,
-              amount,
-            },
-          });
-
-          setNotifications((prev) => [notif, ...prev]);
-          showToast(notif);
+          if (!isInitialLoadDoneRef.current) return;
+          await processOrder(newOrder);
         }
       )
       .subscribe();
 
-    // 2. Inventory Realtime Channel
+    // 2. Orders Fallback Poller (checks every 15s in case realtime was paused or reconnecting)
+    const pollTimer = setInterval(async () => {
+      if (!isInitialLoadDoneRef.current || !branchId) return;
+      try {
+        const { data: recentOrders } = await supabase
+          .from('orders')
+          .select('id, order_no, total_amount, cashier_name, status, created_at, shop_id')
+          .eq('shop_id', branchId)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (recentOrders && recentOrders.length > 0) {
+          const unhandled = recentOrders
+            .filter((o) => !seenOrderIdsRef.current.has(o.id))
+            .reverse();
+          for (const ord of unhandled) {
+            await processOrder(ord);
+          }
+        }
+      } catch {
+        // Silent catch for network drops
+      }
+    }, 15000);
+
+    // 3. Inventory Realtime Channel
     const inventoryChannel = supabase
       .channel(`rt-inventory-${branchId}`)
       .on(
@@ -177,7 +239,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           event: '*',
           schema: 'public',
           table: 'inventory',
-          filter: `shop_id=eq.${branchId}`,
         },
         async (payload) => {
           const newInv = payload.new as {
@@ -189,10 +250,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
           if (!newInv || !newInv.product_id) return;
 
+          const productInfo = await notificationService.getProductInfo(newInv.product_id);
+          if (productInfo?.shopId && productInfo.shopId !== branchId) return;
+
           const qty = Number(newInv.quantity ?? 0);
           const minQty = Number(newInv.min_quantity ?? 5);
-
-          const productInfo = await notificationService.getProductInfo(newInv.product_id);
           const productName = productInfo?.name || 'Item';
           const unit = productInfo?.unit || 'pcs';
 
@@ -248,8 +310,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       .subscribe();
 
     return () => {
-      ordersChannel.unsubscribe();
-      inventoryChannel.unsubscribe();
+      clearInterval(pollTimer);
+      supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(inventoryChannel);
     };
   }, [branchId, showToast]);
 

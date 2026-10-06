@@ -26,11 +26,9 @@ export const NotificationModal: React.FC = () => {
     markAsRead,
     markAllAsRead,
     clearAll,
-    sendTestNotification,
   } = useNotifications();
 
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
-  const [testingCategory, setTestingCategory] = useState<string | null>(null);
 
   const filteredList = notifications.filter((item) => {
     if (activeFilter === 'all') return true;
@@ -41,15 +39,6 @@ export const NotificationModal: React.FC = () => {
     if (activeFilter === 'summary') return item.category === 'daily_summary';
     return true;
   });
-
-  const handleTest = async (category: NotificationCategoryType) => {
-    setTestingCategory(category);
-    try {
-      await sendTestNotification(category);
-    } finally {
-      setTimeout(() => setTestingCategory(null), 500);
-    }
-  };
 
   const formatTimestamp = (isoString: string) => {
     const d = new Date(isoString);
@@ -162,44 +151,6 @@ export const NotificationModal: React.FC = () => {
               activeOpacity={0.7}
             >
               <Ionicons name="close" size={24} color="#334155" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Quick Test Bar (Allows immediate testing of all required notifications) */}
-        <View style={styles.testBarContainer}>
-          <Text style={styles.testBarLabel}>⚡ Instant Test Triggers:</Text>
-          <View style={styles.testButtonsRow}>
-            <TouchableOpacity
-              style={[styles.testButton, testingCategory === 'order' && styles.testButtonActive]}
-              onPress={() => handleTest('order')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.testButtonText}>🛒 Order</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.testButton, testingCategory === 'stock_update' && styles.testButtonActive]}
-              onPress={() => handleTest('stock_update')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.testButtonText}>📦 Stock</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.testButton, testingCategory === 'low_stock' && styles.testButtonActive]}
-              onPress={() => handleTest('low_stock')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.testButtonText}>⚠️ Low Stock</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.testButton, testingCategory === 'daily_summary' && styles.testButtonActive]}
-              onPress={() => handleTest('daily_summary')}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.testButtonText}>📊 6 PM Summary</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -330,41 +281,6 @@ const styles = StyleSheet.create({
   },
   closeHeaderButton: {
     padding: 4,
-  },
-  testBarContainer: {
-    backgroundColor: '#F1F5F9',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  testBarLabel: {
-    fontSize: 12,
-    fontFamily: fonts.bold,
-    color: '#475569',
-    marginBottom: 6,
-  },
-  testButtonsRow: {
-    flexDirection: 'row',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  testButton: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-  },
-  testButtonActive: {
-    borderColor: colors.primary,
-    backgroundColor: '#ECFDF5',
-  },
-  testButtonText: {
-    fontSize: 12,
-    fontFamily: fonts.semiBold,
-    color: '#334155',
   },
   filterPillsRow: {
     flexDirection: 'row',

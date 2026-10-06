@@ -53,7 +53,6 @@ export default function DashboardScreen() {
     updateSettings: updateNotificationSettings,
     unreadCount,
     openModal: openNotificationModal,
-    sendTestNotification,
   } = useNotifications();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('home');
@@ -1257,51 +1256,6 @@ export default function DashboardScreen() {
               thumbColor="#FFFFFF"
               ios_backgroundColor="#E2E8F0"
             />
-          </View>
-        </View>
-
-        {/* Quick Test Actions Card */}
-        <View style={styles.testActionsCard}>
-          <Text style={styles.testActionsTitle}>Test Notification Alerts</Text>
-          <Text style={styles.testActionsSubtitle}>
-            Tap below to trigger instant preview notifications for testing:
-          </Text>
-          <View style={styles.testGrid}>
-            <TouchableOpacity
-              style={styles.testGridButton}
-              onPress={() => sendTestNotification('order')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="bag-check" size={15} color="#059669" />
-              <Text style={styles.testGridButtonText}>Test Order</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.testGridButton}
-              onPress={() => sendTestNotification('stock_update')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="cube" size={15} color="#2563EB" />
-              <Text style={styles.testGridButtonText}>Test Stock</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.testGridButton}
-              onPress={() => sendTestNotification('low_stock')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="warning" size={15} color="#DC2626" />
-              <Text style={styles.testGridButtonText}>Test Low Stock</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.testGridButton}
-              onPress={() => sendTestNotification('daily_summary')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="stats-chart" size={15} color="#7C3AED" />
-              <Text style={styles.testGridButtonText}>Test 6 PM Recap</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -2598,53 +2552,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: fonts.bold,
     color: colors.primary,
-  },
-  testActionsCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  testActionsTitle: {
-    fontSize: 14,
-    fontFamily: fonts.bold,
-    color: '#1E293B',
-    marginBottom: 4,
-  },
-  testActionsSubtitle: {
-    fontSize: 12,
-    fontFamily: fonts.regular,
-    color: '#64748B',
-    marginBottom: 12,
-    lineHeight: 17,
-  },
-  testGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  testGridButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  testGridButtonText: {
-    fontSize: 12,
-    fontFamily: fonts.semiBold,
-    color: '#334155',
   },
   profileLogoutButtonModern: {
     flexDirection: 'row',
