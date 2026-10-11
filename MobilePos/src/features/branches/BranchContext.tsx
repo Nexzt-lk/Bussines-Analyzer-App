@@ -12,7 +12,26 @@ const BranchContext = createContext<BranchContextValue | null>(null);
 
 export function BranchProvider({ children }: { children: ReactNode }) {
   const [currentBranch, setCurrentBranch] = useState<StoredBranch | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+
+    storage.getBranch()
+      .then((branch) => {
+        if (mounted) setCurrentBranch(branch);
+      })
+      .catch((err) => {
+        console.warn('Could not read branch from storage:', err);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const selectBranch = useCallback(async (branch: StoredBranch) => {
     await storage.setBranch(branch);

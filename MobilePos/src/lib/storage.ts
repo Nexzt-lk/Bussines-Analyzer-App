@@ -24,12 +24,16 @@ export interface StoredBranch {
 // Reads a JSON value; a corrupted entry is removed and treated as missing so
 // a bad write can never leave the app stuck on the launch spinner.
 const readJson = async <T>(key: string): Promise<T | null> => {
-  const raw = await AsyncStorage.getItem(key);
-  if (!raw) return null;
   try {
+    const raw = await AsyncStorage.getItem(key);
+    if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
-    await AsyncStorage.removeItem(key);
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch {
+      // Ignore cleanup error
+    }
     return null;
   }
 };

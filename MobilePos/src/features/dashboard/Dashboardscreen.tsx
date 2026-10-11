@@ -14,7 +14,7 @@ import {
   Switch,
   Image,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -46,6 +46,7 @@ type ActiveTab = 'home' | 'sales' | 'expenses' | 'stock' | 'reports' | 'profile'
 
 export default function DashboardScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { currentBranch, selectBranch, clearBranch } = useBranch();
   const { currentUser, logout } = useAuth();
   const {
@@ -1303,7 +1304,14 @@ export default function DashboardScreen() {
         </View>
 
         {/* Bottom Navigation Bar */}
-        <View style={styles.bottomTabBar}>
+        <View
+          style={[
+            styles.bottomTabBar,
+            {
+              paddingBottom: insets.bottom > 0 ? insets.bottom + 4 : (Platform.OS === 'ios' ? 14 : 10),
+            },
+          ]}
+        >
           {/* 1. Home Tab */}
           <TouchableOpacity
             style={styles.tabItem}
@@ -2581,7 +2589,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.tabBarBorder,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    paddingBottom: 10,
     paddingHorizontal: 8,
     justifyContent: 'space-around',
     alignItems: 'center',

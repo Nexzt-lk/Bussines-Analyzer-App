@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import '../global.css';
 
@@ -11,6 +10,7 @@ import { NotificationBanner } from '@/features/notifications/NotificationBanner'
 import { NotificationModal } from '@/features/notifications/NotificationModal';
 import { colors } from '@/constants/colors';
 import AppLoadingScreen from '@/components/AppLoadingScreen';
+import DeviceUnlockScreen from '@/features/auth/DeviceUnlockScreen';
 import {
   useFonts,
   Poppins_400Regular,
@@ -41,7 +41,7 @@ export default function RootLayout() {
 // the manual "swap which Stack.Screens exist" approach used in the
 // earlier React Navigation version — idiomatic for file-based routing.
 function RootNavigation() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Poppins_400Regular,
     Poppins_500Medium,
     Poppins_600SemiBold,
@@ -49,25 +49,43 @@ function RootNavigation() {
     Poppins_800ExtraBold,
   });
 
-  const { currentUser, loading: authLoading } = useAuth();
+  const {
+    currentUser,
+    loading: authLoading,
+    requiresDeviceUnlock,
+    unlockDevice,
+    logout,
+  } = useAuth();
   const { currentBranch, loading: branchLoading } = useBranch();
   const segments = useSegments();
   const router = useRouter();
 
-  // Show the branded loading screen for 2 seconds on app launch
+  // Show the branded loading screen briefly on app launch
   const [splashFinished, setSplashFinished] = useState(false);
-
   useEffect(() => {
     const timer = setTimeout(() => {
       setSplashFinished(true);
-    }, 2000);
+    }, 1200);
     return () => clearTimeout(timer);
   }, []);
 
-  const loading = !fontsLoaded || !splashFinished || authLoading || branchLoading;
+  // Safety fallback: ensure loading screen never hangs forever (max 2.5s)
+  const [forceReady, setForceReady] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setForceReady(true);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const fontsReady = fontsLoaded || Boolean(fontError) || forceReady;
+  const isAuthReady = !authLoading || forceReady;
+  const isBranchReady = !branchLoading || forceReady;
+
+  const loading = (!fontsReady || !splashFinished || !isAuthReady || !isBranchReady) && !forceReady;
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || (currentUser && requiresDeviceUnlock)) return;
 
     const currentRoute = segments[0] as string | undefined;
     const isAuthRoute = currentRoute === 'login';
@@ -80,10 +98,14 @@ function RootNavigation() {
     } else if (currentUser && currentBranch && (isAuthRoute || isBranchRoute)) {
       router.replace('/');
     }
-  }, [currentUser, currentBranch, loading, segments, router]);
+  }, [currentUser, currentBranch, loading, requiresDeviceUnlock, segments, router]);
 
   if (loading) {
     return <AppLoadingScreen />;
+  }
+
+  if (currentUser && requiresDeviceUnlock) {
+    return <DeviceUnlockScreen onUnlocked={unlockDevice} onUsePassword={logout} />;
   }
 
   return (
